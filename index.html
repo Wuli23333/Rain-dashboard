@@ -1,0 +1,3124 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="CbOjt8R6FNpzP2jGIV9MWv">
+<head data-page-node-id="0qM7FxG9D6j6q6yQZU76jD">
+<meta charset="UTF-8" data-page-node-id="nNSd17ylnEvNZ26ynIHWUx" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" data-page-node-id="wlkIDZQclhgI680PNq0luW" />
+<title>个人降雨可视化面板</title>
+
+<!-- ========== 图表库 Chart.js（CDN 引入，无需 npm、无需构建工具） ========== -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+  // 主 CDN 挂掉时自动回退到备用 CDN，保证双击打开就能用
+  if (typeof Chart === 'undefined') {
+    document.write('<script src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>');
+  }
+</script>
+
+<style>
+  /* ==================== 主题变量（深色主题） ==================== */
+  :root {
+    --bg-0: #080d18;
+    --bg-1: #0f172a;
+    --card: #141e33;
+    --card-2: #1a2740;
+    --border: rgba(148, 163, 184, 0.16);
+    --text: #e6edf7;
+    --muted: #a3bad9;     /* 次级/提示文字：比正文弱，但足够实，不发飘 */
+    --accent: #38bdf8;    /* 主色：天蓝 */
+    --accent-2: #a78bfa;  /* 次色：紫 */
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --radius: 18px;
+    --radius-sm: 12px;
+    --shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(1100px 520px at 12% -8%, rgba(56, 189, 248, 0.16), transparent 62%),
+      radial-gradient(900px 480px at 92% 4%, rgba(167, 139, 250, 0.14), transparent 60%),
+      linear-gradient(180deg, var(--bg-1) 0%, var(--bg-0) 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+    line-height: 1.6;
+    padding: 22px 16px 48px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  /* ==================== 顶部标题 ==================== */
+  .page-head { margin-bottom: 18px; }
+
+  .page-head h1 {
+    margin: 0 0 6px;
+    font-size: clamp(21px, 4.6vw, 28px);
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+
+  .page-head h1 .dot {
+    display: inline-block;
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-right: 9px;
+    vertical-align: middle;
+    box-shadow: 0 0 14px var(--accent);
+  }
+
+  .page-head p { margin: 0; color: var(--muted); font-size: 13.5px; }
+
+  /* ==================== 通用卡片 ==================== */
+  .card {
+    background: linear-gradient(180deg, var(--card) 0%, var(--card-2) 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+
+  .card-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+    font-size: 15.5px;
+    font-weight: 650;
+    flex-wrap: wrap;
+  }
+
+  .card-title .sub { font-size: 12px; font-weight: 400; color: var(--muted); }
+
+  /* ==================== 表单元素 ==================== */
+  .input-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .field { display: flex; flex-direction: column; gap: 6px; }
+
+  .field label { font-size: 12.5px; color: var(--muted); padding-left: 2px; }
+
+  input[type="number"], input[type="text"] {
+    width: 100%;
+    padding: 12px 14px;
+    font-size: 15px;
+    font-family: inherit;
+    color: var(--text);
+    background: rgba(8, 13, 24, 0.72);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    outline: none;
+    transition: border-color .18s, box-shadow .18s;
+  }
+
+  input::placeholder { color: #5b6d87; }
+
+  input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
+  }
+
+  .btn-row {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 12px;
+    margin-top: 14px;
+  }
+
+  button {
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 12px 16px;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: transform .12s, filter .18s, opacity .18s, background .18s;
+  }
+
+  button:active { transform: scale(0.985); }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+
+  .btn-primary {
+    color: #04121f;
+    background: linear-gradient(135deg, #7dd3fc 0%, #38bdf8 55%, #22d3ee 100%);
+    box-shadow: 0 8px 22px rgba(56, 189, 248, 0.28);
+  }
+  .btn-primary:hover:not(:disabled) { filter: brightness(1.06); }
+
+  .btn-ghost {
+    color: var(--text);
+    background: rgba(148, 163, 184, 0.1);
+    border-color: var(--border);
+  }
+  .btn-ghost:hover:not(:disabled) { background: rgba(148, 163, 184, 0.18); }
+
+  /* ==================== 地名搜索 ==================== */
+  .search-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
+
+  .btn-search {
+    color: #04121f;
+    background: linear-gradient(135deg, #c4b5fd 0%, #a78bfa 100%);
+    box-shadow: 0 8px 22px rgba(167, 139, 250, 0.26);
+    white-space: nowrap;
+  }
+  .btn-search:hover:not(:disabled) { filter: brightness(1.06); }
+
+  .search-results { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+
+  .search-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 11px 13px;
+    background: rgba(8, 13, 24, 0.55);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: border-color .16s, background .16s;
+  }
+
+  .search-item:hover {
+    border-color: rgba(56, 189, 248, 0.55);
+    background: rgba(56, 189, 248, 0.09);
+  }
+
+  .search-item .place    { font-size: 14.5px; font-weight: 600; }
+  .search-item .region   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .search-item .coord    { font-size: 11.5px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+  /* ==================== 状态提示条 ==================== */
+  .status {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--muted);
+    min-height: 20px;
+    word-break: break-word;
+  }
+  .status.err { color: var(--danger); }
+  .status.ok  { color: var(--ok); }
+
+  /* ---------- 输入框校验态 ---------- */
+  .field-err {
+    font-size: 11.5px;
+    color: var(--danger);
+    padding-left: 2px;
+    min-height: 0;
+    line-height: 1.5;
+  }
+  .field-err:empty { display: none; }
+
+  input.invalid {
+    border-color: var(--danger);
+    background: rgba(248, 113, 113, 0.07);
+  }
+  input.invalid:focus {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.18);
+  }
+
+  /* ---------- 请求失败块（错误原因 + 重试） ---------- */
+  .err-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    font-weight: 600;
+    line-height: 1.6;
+  }
+  .err-head .err-icon { flex: none; }
+
+  .err-detail {
+    margin-top: 5px;
+    font-size: 11.5px;
+    color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    word-break: break-all;
+    opacity: .92;
+  }
+
+  .err-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .btn-retry {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 16px;
+    color: #2a0d0d;
+    background: linear-gradient(135deg, #fca5a5 0%, #f87171 60%, #ef4444 100%);
+    border: 1px solid transparent;
+    border-radius: 999px;
+    box-shadow: 0 6px 18px rgba(248, 113, 113, 0.28);
+  }
+  .btn-retry:hover:not(:disabled) { filter: brightness(1.06); }
+  .btn-retry:disabled { opacity: .6; cursor: not-allowed; }
+
+  .err-hint { font-size: 11.5px; color: var(--muted); }
+
+  .tag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    border: 1px solid var(--border);
+    background: rgba(148, 163, 184, 0.12);
+    color: var(--muted);
+    margin: 0 2px;
+  }
+  .tag.hit { color: #7dd3fc; border-color: rgba(56, 189, 248, .4); background: rgba(56, 189, 248, .12); }
+
+  /* ==================== KPI 数据卡片 ==================== */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .kpi {
+    background: linear-gradient(180deg, var(--card) 0%, var(--card-2) 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 15px;
+    box-shadow: var(--shadow);
+  }
+
+  .kpi .k-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .kpi .k-value { font-size: 23px; font-weight: 700; letter-spacing: .3px; line-height: 1.28; }
+  .kpi .k-value .unit { font-size: 12.5px; font-weight: 500; color: var(--muted); margin-left: 4px; }
+  .kpi .k-note  { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+
+  .c-accent  { color: var(--accent); }
+  .c-accent2 { color: var(--accent-2); }
+  .c-ok      { color: var(--ok); }
+  .c-warn    { color: var(--warn); }
+  .c-danger  { color: var(--danger); }
+  .c-orange  { color: #fb923c; }
+  .c-muted   { color: var(--muted); }
+
+  /* ==================== 数据卡片分组（核心数字 / 不确定性 / 环境） ==================== */
+  .kpi-groups { margin-bottom: 16px; }
+
+  .kpi-group { margin-bottom: 14px; }
+  .kpi-group:last-child { margin-bottom: 0; }
+
+  .kpi-group-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 0 0 8px 2px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .kpi-group-title .g-note { font-size: 11.5px; }
+
+  /* 分组里的网格自己去管间距，别让 .kpi-grid 的 margin-bottom 再叠一层 */
+  .kpi-group .kpi-grid { margin-bottom: 0; }
+
+  /* ==================== 顶部综合建议（整行、最大字号） ==================== */
+  .advice-card { padding: 18px 20px; }
+
+  /* 必须是全页最大的字号：数值卡是 23px（窄屏 20px），这里要压过它 */
+  .advice-card .adv-main {
+    font-size: 26px;
+    font-weight: 800;
+    line-height: 1.5;
+    letter-spacing: .2px;
+  }
+  .advice-card .adv-why {
+    margin-top: 9px;
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+
+  .advice-card.adv-ok     { border-color: rgba(52, 211, 153, .34); }
+  .advice-card.adv-ok     .adv-main { color: var(--ok); }
+  .advice-card.adv-none   .adv-main { color: var(--text); opacity: .8; }
+  .advice-card.adv-warn   { border-color: rgba(251, 191, 36, .34); }
+  .advice-card.adv-warn   .adv-main { color: var(--warn); }
+  .advice-card.adv-danger { border-color: rgba(248, 113, 113, .38); }
+  .advice-card.adv-danger .adv-main { color: var(--danger); }
+
+  @media (max-width: 560px) {
+    .advice-card { padding: 15px 16px; }
+    .advice-card .adv-main { font-size: 22px; }
+    .advice-card .adv-why  { font-size: 12px; }
+  }
+
+  /* ==================== 图表容器 ==================== */
+  .chart-box { position: relative; width: 100%; height: 320px; }
+  .chart-box.tall { height: 360px; }
+
+  .chart-note { font-size: 11.5px; color: var(--muted); margin-top: 10px; line-height: 1.7; }
+
+  /* 图 3 的自定义图例（成员太多，用文字说明代替图例） */
+  .legend-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin-top: 10px;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  .legend-inline span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend-inline i { display: inline-block; width: 18px; height: 0; border-top-width: 2px; border-top-style: solid; }
+
+  /* ==================== 结论区 ==================== */
+  .verdict {
+    font-size: 15.5px;
+    line-height: 1.85;
+    padding: 14px 16px;
+    border-radius: var(--radius-sm);
+    background: rgba(56, 189, 248, 0.08);
+    border: 1px solid rgba(56, 189, 248, 0.26);
+    margin-bottom: 14px;
+  }
+
+  .verdict b { color: var(--accent); font-weight: 700; }
+
+  .advice-list { margin: 0; padding: 0; list-style: none; }
+
+  .advice-list li {
+    position: relative;
+    padding: 8px 0 8px 24px;
+    font-size: 14px;
+    color: #cfdcee;
+    border-top: 1px dashed rgba(148, 163, 184, 0.14);
+  }
+  .advice-list li:first-child { border-top: none; }
+
+  .advice-list li::before {
+    content: "";
+    position: absolute;
+    left: 6px; top: 17px;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .advice-list li.warn::before   { background: var(--warn); }
+  .advice-list li.danger::before { background: var(--danger); }
+
+  /* 结论卡片（.conclusion-grid / .umbrella / .alert 等）的样式在脚本里注入，
+     原因见脚本「结论卡片的样式与结构」一节：body 会被编辑器重新序列化 */
+
+  /* ==================== 页脚 ==================== */
+  footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 26px;
+    line-height: 2;
+  }
+
+  footer a { color: var(--accent); text-decoration: none; }
+
+  .link-btn {
+    background: none;
+    border: none;
+    color: var(--accent-2);
+    font-size: 12px;
+    padding: 2px 4px;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  /* 加载中旋转小图标 */
+  .spinner {
+    display: inline-block;
+    width: 13px; height: 13px;
+    margin-right: 7px;
+    border: 2px solid rgba(148, 163, 184, .35);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    vertical-align: -2px;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ==================== 手机端适配 ==================== */
+  @media (max-width: 560px) {
+    body { padding: 16px 12px 36px; }
+    .card { padding: 15px; border-radius: 16px; }
+    .input-grid { grid-template-columns: 1fr; }   /* 输入框改单列 */
+    .btn-row { grid-template-columns: 1fr; }      /* 按钮改单列，方便拇指点击 */
+    .search-row { grid-template-columns: 1fr; }
+    .chart-box { height: 260px; }
+    .chart-box.tall { height: 280px; }
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .kpi { padding: 12px; }
+    .kpi .k-value { font-size: 20px; }
+    .card-title { font-size: 14.5px; }
+  }
+</style>
+</head>
+
+<body data-page-node-id="ogKu73rFvMtCihk6dey0Ln">
+<div class="wrap" data-page-node-id="hCD3aS6Qxol45vOKtgufvM">
+
+  <!-- ==================== 标题 ==================== -->
+  <header class="page-head" data-page-node-id="CGyrKyhsmpkT7A0PmYO87w">
+    <h1 data-page-node-id="Lt3AXfiI4siiApoUy1diyQ"><span class="dot" data-page-node-id="MKgLjBChUAOi7xNbpB2NxW"></span>个人降雨可视化面板</h1>
+    <p data-page-node-id="qz77bn0BQLATW7PRapNdrk">多模型对比 + ECMWF 集合预报，看未来降水的量级、概率与不确定性。</p>
+  </header>
+
+  <!-- ==================== 地名搜索（地理编码接口） ==================== -->
+  <section class="card" data-page-node-id="un2aS17dgCTHO4BdoljSQz">
+    <div class="card-title" data-page-node-id="NrMSZEAchN4k01BX7QNAfW">
+      <span data-page-node-id="uP9trLsZN7iEfH4UUvv8mH">按地名搜索</span>
+      <span class="sub" data-page-node-id="5qipRNDzlCb1JjqKn67nAH">Open-Meteo Geocoding</span>
+    </div>
+    <div class="search-row" data-page-node-id="mbQLo2slyLHA8JfdxORtmS">
+      <div class="field" data-page-node-id="pNBjRAvbXVjLJgDR6uELZT">
+        <label for="keywordInput" data-page-node-id="6dfftaK2UWGHp2jkqwVFTI">地名关键词（中文或拼音，例如 兰州 / Lanzhou）</label>
+        <input id="keywordInput" type="text" placeholder="输入城市名后点搜索" autocomplete="off" data-page-node-id="wlkPDk3OMvN34WS3foM7ds" />
+      </div>
+      <button id="searchBtn" class="btn-search" type="button" data-page-node-id="b2BUoXvrdOGAFmysrMEJwu">搜索</button>
+    </div>
+    <div id="searchResults" class="search-results" data-page-node-id="f9SORKNQ3OHh86bEe6BHxU"></div>
+  </section>
+
+  <!-- ==================== 1. 坐标输入区 ==================== -->
+  <section class="card" data-page-node-id="yAdMxLfPGBVHE1zTLw6oMg">
+    <div class="card-title" data-page-node-id="X8kdYt2f971uYjzlpXUUgb">
+      <span data-page-node-id="HdOMYNkyMqOBcRmy6zZlpZ">坐标输入</span>
+      <span class="sub" data-page-node-id="XZkJAAkp2CrLqWeDNFiDzk">默认：甘肃兰州</span>
+    </div>
+
+    <div class="input-grid" data-page-node-id="CRvFV2B8rmCw4Id7ORcj0b">
+      <div class="field" data-page-node-id="XugHag2a3CCHEDcPPEYUr3">
+        <label for="latInput" data-page-node-id="K7DMJ9oqRoagBqA4AWGr1P">纬度（-90 ~ 90）</label>
+        <input id="latInput" type="number" inputmode="decimal" step="0.0001" min="-90" max="90" placeholder="例如 36.0984" data-page-node-id="hGSFU3CnesE35GmAUMrRos" />
+      </div>
+      <div class="field" data-page-node-id="C64IDvS3R0rPlfelyd3kyg">
+        <label for="lonInput" data-page-node-id="8lAASFK343IWWpfkH3Cc5t">经度（-180 ~ 180）</label>
+        <input id="lonInput" type="number" inputmode="decimal" step="0.0001" min="-180" max="180" placeholder="例如 103.7743" data-page-node-id="dGgNxT40FpUNPtjvcM3FYR" />
+      </div>
+    </div>
+
+    <div class="btn-row" data-page-node-id="OfZ5QeTTcCCXkcjeDfoPw1">
+      <button id="queryBtn" class="btn-primary" type="button" data-page-node-id="4vHNuWzFCFQGtQhqSUnDQA">查询</button>
+      <button id="geoBtn" class="btn-ghost" type="button" data-page-node-id="e9UYSiugjisVVFMIvAZbJD">用我当前位置</button>
+    </div>
+
+    <div id="statusBar" class="status" data-page-node-id="FO5XwwhRe4516ib4nNmLNb">等待查询…</div>
+  </section>
+
+  <!-- ==================== KPI 数据速览（JS 渲染） ==================== -->
+  <section id="kpiGrid" class="kpi-grid" data-page-node-id="qDekYyB0kNDd8yL9QxCODF"></section>
+
+  <!-- ==================== 图 1：逐小时降雨双轴图 ==================== -->
+  <section class="card" id="overviewCard" style="display:none" data-page-node-id="MY0Dkef2lSVp90BdsFHXgH">
+    <div class="card-title" data-page-node-id="L9y5e68GIWpkwEbho8dsUp">
+      <span data-page-node-id="X2F8wiYI5Oz2QtvHCabqGO">逐小时降雨总览</span>
+      <span class="sub" data-page-node-id="PAZG8breVWhRhsBMBpTYzd">柱=降水量(mm)　线=降水概率(%)</span>
+    </div>
+    <div class="chart-box" data-page-node-id="Y6KAZ66h7AmyG0aKZewuQR"><canvas id="overviewChart" data-page-node-id="cWk2VggBav5QIviSbB4yuH"></canvas></div>
+    <div class="chart-note" data-page-node-id="N62iPgyPwDpnrB37vHsupH">
+      左轴为降水量（柱状），右轴为降水概率（折线）。数值取三个数值模型的平均值，作为综合预报。
+    </div>
+  </section>
+
+  <!-- ==================== 图 2：多模型对比 ==================== -->
+  <section class="card" id="modelCard" style="display:none" data-page-node-id="1M26d0EesjGnQPrYFKAfRe">
+    <div class="card-title" data-page-node-id="ro0AdQaIJL8SRfK3CrokUk">
+      <span data-page-node-id="CxzR6WBmgolEmuSJ1gBWeK">多模型对比（降水量）</span>
+      <span class="sub" id="modelSub" data-page-node-id="xbMio0BvmRSZhSNzPcFk2h">ECMWF / GFS / ICON</span>
+    </div>
+    <div class="chart-box" data-page-node-id="lmiktTaDyQUHaQjLvvmqPE"><canvas id="modelChart" data-page-node-id="KkUe9qDHtIQYDvEJCuzJTp"></canvas></div>
+    <div class="chart-note" data-page-node-id="qoW0WsmRx5YdZTvDwxtbbM">三条线贴得越近，说明各模型越一致；拉开的区间就是预报的不确定性范围。</div>
+  </section>
+
+  <!-- ==================== 图 3：集合预报面条图 ==================== -->
+  <section class="card" id="ensembleCard" style="display:none" data-page-node-id="w0zTAgcc58VjYZq2iVDeTR">
+    <div class="card-title" data-page-node-id="cD9HCDGKgpWLE68Jbll9rD">
+      <span data-page-node-id="5qeZUvc3qoeDzePjJmrOK1">集合预报（面条图）</span>
+      <span class="sub" id="ensSub" data-page-node-id="rA7TfN9Hki0488mpbLCBHK">ECMWF 集合成员</span>
+    </div>
+    <div class="chart-box tall" data-page-node-id="x5tkhniTDmNgyrkHGiiLPc"><canvas id="ensembleChart" data-page-node-id="KB0p6UHH8FckJ0HR5TOM5N"></canvas></div>
+    <div class="legend-inline" data-page-node-id="TFDPf8hIcCcJ9TecCZ9vX9">
+      <span data-page-node-id="6BD1kBXGvZIlOKXupT3GPu"><i style="border-color: rgba(148,163,184,0.55)" data-page-node-id="OhRBF6Z70BC9gB7DI47txq"></i>各集合成员（半透明细线，共 <b id="ensMemberCount" data-page-node-id="xov7Wj4UZykWYAs0Q8tsSq">50</b> 条）</span>
+      <span data-page-node-id="jcQOFCdUsLfsiWuk3A6629"><i style="border-color: #a78bfa" data-page-node-id="Xmh6rIDtpzXl4e9KRmm2PY"></i>集合中位数（粗线，最可能的情况）</span>
+    </div>
+    <div class="chart-note" id="ensNote" data-page-node-id="N22cC7TDhpMAfVpYd5enMe">
+      成员之间散得越开，说明预报越不确定；如果大部分成员都贴近中位数，则这次预报的可信度较高。
+    </div>
+  </section>
+
+  <!-- ==================== 结论与建议（JS 渲染） ==================== -->
+  <section class="card" id="conclusionCard" style="display:none" data-page-node-id="yqv5t8LmNmwrVo7W5DD2np">
+    <div class="card-title" data-page-node-id="9W1jo2xChDa21Ascatje1B"><span data-page-node-id="gLBtK5damgJ6vZsB52nEVC">结论与建议</span></div>
+    <div id="verdictBox" class="verdict" data-page-node-id="BVc6UisRMxHA5JrC2X7Fld"></div>
+    <ul id="adviceBox" class="advice-list" data-page-node-id="3xmClGQA7FAFOBCHSaBdDW"></ul>
+  </section>
+
+  <footer data-page-node-id="6qHhfiJsQPE2A1VdC4t0ze">
+    数据来源：<a href="https://open-meteo.com/" target="_blank" rel="noopener" data-page-node-id="tikG91PB7Ni9iqIoqS6reF">Open-Meteo</a>
+    预报 / 集合 / 地理编码 API ｜ 降雨量单位：毫米（mm）｜ 时间基准：北京时间（Asia/Shanghai）<br  data-page-node-id="UiSECF5SmVUd77la7VW0cs"/>
+    <span id="updateTime" data-page-node-id="1KTX7EnLWMbJI9lv71735o"></span>
+    <span id="cacheInfo" data-page-node-id="L4ql4dvU07SNMzTDkmGB6u"></span>
+    <button id="clearCacheBtn" class="link-btn" type="button" data-page-node-id="EcOcCOMXns2a3Ol1UOmB85">清空本地缓存</button>
+  </footer>
+</div>
+
+<script>
+/* =========================================================================
+   个人降雨可视化面板 —— 纯原生 JS，无构建工具、无 npm
+   -------------------------------------------------------------------------
+   三个接口并行请求：
+     1) 预报（多模型）  https://api.open-meteo.com/v1/forecast
+     2) 集合预报        https://ensemble-api.open-meteo.com/v1/ensemble
+     3) 地名转坐标      https://geocoding-api.open-meteo.com/v1/search
+
+   注意：带 models= 参数时，返回字段名会带模型后缀（形如
+        precipitation_ecmwf_ifs025），因此下面全部按"后缀"动态解析，
+        没有写死任何一个带后缀的字段名。
+   ========================================================================= */
+
+/* ---------------------- 常量配置 ---------------------- */
+const API_FORECAST = 'https://api.open-meteo.com/v1/forecast';
+const API_ENSEMBLE = 'https://ensemble-api.open-meteo.com/v1/ensemble';
+const API_GEOCODE  = 'https://geocoding-api.open-meteo.com/v1/search';
+
+const DEFAULT_LAT = 36.0984;   // 默认纬度（甘肃兰州）
+const DEFAULT_LON = 103.7743;  // 默认经度
+const STORAGE_KEY = 'rainPanel.coords';  // localStorage 中保存坐标的键名
+
+const TZ = 'Asia/Shanghai';    // 接口固定使用北京时间，前端展示也按它对齐
+
+/* 请求时指定的模型列表（同时也是解析返回结果时的取值来源） */
+const MODELS = ['ecmwf_ifs025', 'gfs_seamless', 'icon_seamless'];
+
+/* 模型展示名与配色 —— 三个模型用三种颜色，图 2 直接读这里 */
+const MODEL_META = {
+  ecmwf_ifs025:  { name: 'ECMWF', color: '#38bdf8' },  // 天蓝
+  gfs_seamless:  { name: 'GFS',   color: '#fbbf24' },  // 琥珀
+  icon_seamless: { name: 'ICON',  color: '#34d399' }   // 绿
+};
+
+/* 集合预报的字段基名（成员键形如 precipitation_memberNN） */
+const ENSEMBLE_FIELD = 'precipitation';
+
+/* 图 3 的成员线颜色：半透明细灰线 */
+const MEMBER_LINE_COLOR = 'rgba(148, 163, 184, 0.28)';
+/* 图 3 中位数粗线颜色 */
+const MEDIAN_LINE_COLOR = '#a78bfa';
+
+const WEEK_CN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+
+/* ==========================================================================
+   ★★★【缓存模块】START ★★★
+   作用：同一 URL 在 10 分钟内不重复请求，避免开发时反复刷新白白消耗 API 额度。
+   缓存存在 localStorage（键 rainPanel.cache.v1），刷新页面依然有效。
+   需要"删除缓存"时：把 START 到 END 之间整段删掉，并去掉 fetchJSON 里的
+   cacheGet / cachePut 调用，即恢复"每次查询都实时请求"。
+   ========================================================================== */
+const CACHE_STORE_KEY = 'rainPanel.cache.v1';
+const CACHE_TTL       = 10 * 60 * 1000;  // 缓存有效期：10 分钟
+const CACHE_MAX_ENDS  = 10;              // 最多保留条目数，防止 localStorage 膨胀
+
+/** 读取整个缓存表 */
+function readCacheStore() {
+  try {
+    return JSON.parse(localStorage.getItem(CACHE_STORE_KEY) || '{}') || {};
+  } catch (e) {
+    return {};   // 数据损坏就当没有缓存
+  }
+}
+
+/** 写入整个缓存表（配额超限时退化为丢弃缓存，不影响主流程） */
+function writeCacheStore(store) {
+  try {
+    localStorage.setItem(CACHE_STORE_KEY, JSON.stringify(store));
+  } catch (e) {
+    try { localStorage.removeItem(CACHE_STORE_KEY); } catch (_) { /* 忽略 */ }
+  }
+}
+
+/** 取缓存：命中且未过期才返回数据，否则返回 null */
+function cacheGet(url) {
+  const store = readCacheStore();
+  const item  = store[url];
+  if (!item) return null;
+  if (Date.now() - item.t > CACHE_TTL) {   // 已过期，顺手删掉
+    delete store[url];
+    writeCacheStore(store);
+    return null;
+  }
+  return item.d;
+}
+
+/** 存缓存：同时做过期清理 + 条目数裁剪（保留最新的若干条） */
+function cachePut(url, data) {
+  const store = readCacheStore();
+  store[url] = { t: Date.now(), d: data };
+
+  const now = Date.now();
+  Object.keys(store).forEach(k => { if (now - store[k].t > CACHE_TTL) delete store[k]; });
+
+  const keys = Object.keys(store);
+  if (keys.length > CACHE_MAX_ENDS) {
+    // 按时间从旧到新排序，删掉最旧的若干条
+    keys.sort((a, b) => store[a].t - store[b].t)
+        .slice(0, keys.length - CACHE_MAX_ENDS)
+        .forEach(k => delete store[k]);
+  }
+  writeCacheStore(store);
+}
+
+/** 清空缓存（页脚「清空本地缓存」按钮会调用） */
+function clearApiCache() {
+  try { localStorage.removeItem(CACHE_STORE_KEY); } catch (e) { /* 忽略 */ }
+}
+
+/** 当前缓存里有多少条仍在有效期内的记录（用于页脚展示） */
+function cacheCount() {
+  const store = readCacheStore();
+  const now = Date.now();
+  return Object.keys(store).filter(k => now - store[k].t <= CACHE_TTL).length;
+}
+/* ★★★【缓存模块】END ★★★ */
+
+
+/* =========================================================================
+   结论卡片的样式与结构（由脚本注入）
+   -------------------------------------------------------------------------
+   结论区是这个面板最重要的部分，所以这里不依赖 HTML 里预先写好的节点：
+   本文件如果用带"可视化编辑"的编辑器打开，它会重新序列化 <body>，
+   手工写进 HTML 的新节点会被抹掉。样式和结构都放在脚本里，每次打开
+   都由脚本重建，才能保证结论区的排版和数据一定对得上。
+   ========================================================================= */
+
+/* 结论区专用样式（深色主题下的卡片、横幅、提示条） */
+const CONCLUSION_CSS = `
+.conclusion-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(152px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.cn-item {
+  background: rgba(148, 163, 184, 0.07);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 11px 13px;
+}
+.cn-item .cn-label { font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+.cn-item .cn-value { font-size: 19px; font-weight: 700; letter-spacing: .2px; line-height: 1.35; }
+.cn-item .cn-value .unit { font-size: 11.5px; font-weight: 500; color: var(--muted); margin-left: 3px; }
+.cn-item .cn-sub { font-size: 11.5px; color: var(--muted); margin-top: 5px; line-height: 1.6; }
+
+.umbrella {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 12px 15px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.umbrella .u-icon { font-size: 19px; line-height: 1; }
+.umbrella .u-note {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  text-align: right;
+}
+.umbrella.need  { background: rgba(56, 189, 248, 0.10); border-color: rgba(56, 189, 248, 0.32); color: var(--accent); }
+.umbrella.heavy { background: rgba(248, 113, 113, 0.11); border-color: rgba(248, 113, 113, 0.36); color: var(--danger); }
+.umbrella.no    { background: rgba(52, 211, 153, 0.09); border-color: rgba(52, 211, 153, 0.28); color: var(--ok); }
+
+.alert {
+  display: flex;
+  gap: 9px;
+  padding: 11px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  font-size: 13.5px;
+  line-height: 1.7;
+  margin-bottom: 14px;
+}
+.alert b { font-weight: 700; }
+.alert.warn { background: rgba(251, 191, 36, 0.10); border-color: rgba(251, 191, 36, 0.32); color: #f3d489; }
+.alert.ok   { background: rgba(148, 163, 184, 0.07); color: var(--muted); }
+
+.sub-title { font-size: 12.5px; color: var(--muted); margin: 2px 0 4px; }
+
+@media (max-width: 560px) {
+  .umbrella { font-size: 14px; }
+  .umbrella .u-note { margin-left: 0; width: 100%; text-align: left; }
+  .cn-item .cn-value { font-size: 17px; }
+}
+`;
+
+/** 把结论区样式挂到 <head>（只挂一次） */
+function injectConclusionStyles() {
+  if (document.getElementById('conclusionStyle')) return;
+  const style = document.createElement('style');
+  style.id = 'conclusionStyle';
+  style.textContent = CONCLUSION_CSS;
+  document.head.appendChild(style);
+}
+
+/** 搭出结论区的内部结构：
+    [主结论句] → [四项指标] → [带伞建议] → [模式一致性] → [补充提示] → [补充列表] */
+function buildConclusionLayout() {
+  const card = document.getElementById('conclusionCard');
+  if (!card || document.getElementById('conclusionGrid')) return;   // 已经建好就不重复建
+
+  const mk = (tag, id, cls) => {
+    const el = document.createElement(tag);
+    if (id)  el.id = id;
+    if (cls) el.className = cls;
+    return el;
+  };
+
+  const advice = document.getElementById('adviceBox');   // 列表已存在，新节点都插在它前面
+  const grid   = mk('div', 'conclusionGrid', 'conclusion-grid');  // ① 四项关键指标
+  const umbr   = mk('div', 'umbrellaBox');                        // ② 带伞建议
+  const agree  = mk('div', 'agreeBox');                           // ③ 模式一致性
+  const sub    = mk('div', null, 'sub-title');                    // ④ 补充提示小标题
+  sub.textContent = '补充提示';
+
+  // 标题栏右侧补一个"未来 24 小时"小字（万一标题行不在，就直接挂到卡片上，别让它丢）
+  if (!document.getElementById('conclusionSub')) {
+    const span = mk('span', 'conclusionSub', 'sub');
+    span.textContent = '未来 24 小时';
+    const head = card.querySelector('.card-title');
+    if (head) head.appendChild(span); else card.insertBefore(span, card.firstChild);
+  }
+
+  // 按视觉顺序插入（每次 insertBefore 都锚在 adviceBox 上，顺序会自动保持）
+  card.insertBefore(grid, advice);
+  card.insertBefore(umbr, advice);
+  card.insertBefore(agree, advice);
+  card.insertBefore(sub, advice);
+}
+
+injectConclusionStyles();
+buildConclusionLayout();
+
+
+/* ---------------------- DOM 引用 ---------------------- */
+const keywordInput    = document.getElementById('keywordInput');
+const searchBtn       = document.getElementById('searchBtn');
+const searchResults   = document.getElementById('searchResults');
+const latInput        = document.getElementById('latInput');
+const lonInput        = document.getElementById('lonInput');
+const queryBtn        = document.getElementById('queryBtn');
+const geoBtn          = document.getElementById('geoBtn');
+const statusBar       = document.getElementById('statusBar');
+const kpiGrid         = document.getElementById('kpiGrid');
+const overviewCard    = document.getElementById('overviewCard');
+const modelCard       = document.getElementById('modelCard');
+const ensembleCard    = document.getElementById('ensembleCard');
+const conclusionCard  = document.getElementById('conclusionCard');
+const modelSub        = document.getElementById('modelSub');
+const overviewSub     = document.querySelector('#overviewCard .card-title .sub');
+const overviewTitle   = document.querySelector('#overviewCard .card-title span');
+const ensSub          = document.getElementById('ensSub');
+const ensMemberCount  = document.getElementById('ensMemberCount');
+const ensNote         = document.getElementById('ensNote');
+const verdictBox      = document.getElementById('verdictBox');
+const adviceBox       = document.getElementById('adviceBox');
+const conclusionGrid  = document.getElementById('conclusionGrid');
+const conclusionSub   = document.getElementById('conclusionSub');
+const umbrellaBox     = document.getElementById('umbrellaBox');
+const agreeBox        = document.getElementById('agreeBox');
+const updateTime      = document.getElementById('updateTime');
+const cacheInfo       = document.getElementById('cacheInfo');
+const clearCacheBtn   = document.getElementById('clearCacheBtn');
+
+/* 图表实例引用（重查前必须 destroy，否则同一 canvas 复用会叠加图层） */
+const charts = { overview: null, model: null, ensemble: null };
+
+
+/* =======================================================================
+   一、通用工具函数
+   ======================================================================= */
+
+/** 状态栏文案：type 可为 '' | 'ok' | 'err' */
+function setStatus(html, type = '') {
+  statusBar.className = 'status' + (type ? ' ' + type : '');
+  statusBar.innerHTML = html;
+}
+
+/** 把 "2026-09-23T15:00" 拆成 {Y,M,D,h}
+ *  故意不用 new Date()：这是"当地时区的裸字符串"，交给 Date 解析会被浏览器二次偏移 */
+function splitTime(str) {
+  const [datePart, timePart = '00:00'] = String(str).split('T');
+  const [Y, M, D] = datePart.split('-').map(Number);
+  const [h]       = timePart.split(':').map(Number);
+  return { Y, M, D, h };
+}
+
+/** 由年月日求星期中文（用 UTC 计算，规避本地时区影响） */
+function weekdayCN(Y, M, D) {
+  return WEEK_CN[new Date(Date.UTC(Y, M - 1, D)).getUTCDay()];
+}
+
+/** 数字保留 n 位小数并去掉小数部分末尾多余的 0 */
+function fmt(num, n = 1) {
+  if (num === null || num === undefined || Number.isNaN(Number(num))) return '—';
+  // 只削"小数点之后"的尾随 0：原来的 /\.?0+$/ 会把 "10" 削成 "1"、把 "0" 削成空串，
+  // 在 n = 0（整数百分比）时就会露出问题。
+  return Number(num).toFixed(n).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+}
+
+/** 数组求和（null / undefined 按 0 处理） */
+function sum(arr) {
+  return (arr || []).reduce((a, b) => a + (Number(b) || 0), 0);
+}
+
+/** 数组最大值 / 最小值 */
+function maxOf(arr) { return (arr || []).reduce((a, b) => Math.max(a, Number(b) || 0), 0); }
+function minOf(arr) {
+  const v = (arr || []).filter(x => x !== null && x !== undefined && !Number.isNaN(Number(x)));
+  return v.length ? Math.min.apply(null, v.map(Number)) : 0;
+}
+
+/** 分位数（线性插值），传入已升序排列的数组 */
+function quantile(sorted, q) {
+  if (!sorted.length) return 0;
+  const pos  = (sorted.length - 1) * q;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  if (sorted[base + 1] !== undefined) return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
+  return sorted[base];
+}
+
+/** 求"当前小时"的时间键，如 "2026-09-23T15"（接口没返回 current，用浏览器时钟换算） */
+function currentHourKey() {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', hour12: false
+    }).formatToParts(new Date());
+    const get = t => { const p = parts.find(x => x.type === t); return p ? p.value : ''; };
+    let hh = get('hour');
+    if (hh === '24') hh = '00';   // 个别环境会把 0 点返回成 24
+    return `${get('year')}-${get('month')}-${get('day')}T${hh}`;
+  } catch (e) {
+    // 极老浏览器不支持 timeZone 选项时，退化为本地时间
+    const d = new Date();
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}`;
+  }
+}
+
+/** 在时间轴里找到"从当前小时开始"的起点下标；找不到就从 0 开始（前 13 位是整点，可精确比对） */
+function findStartIndex(timeArr) {
+  const key = currentHourKey();
+  const idx = (timeArr || []).findIndex(t => String(t).slice(0, 13) === key);
+  return idx < 0 ? 0 : idx;
+}
+
+/** 云量 → 天空状况中文描述 */
+function skyText(cloud) {
+  const c = Number(cloud) || 0;
+  if (c < 20) return '晴';
+  if (c < 45) return '少云';
+  if (c < 70) return '多云';
+  if (c < 90) return '阴天';
+  return '阴沉';
+}
+
+
+/* =======================================================================
+   二、坐标持久化（localStorage）
+   ======================================================================= */
+
+function saveCoords(lat, lon, placeName) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ lat, lon, name: placeName || '' }));
+  } catch (e) { /* 隐私模式下可能失败，忽略 */ }
+}
+
+function loadCoords() {
+  try {
+    const obj = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    if (obj && typeof obj.lat === 'number' && typeof obj.lon === 'number') return obj;
+  } catch (e) { /* 数据损坏当没有 */ }
+  return null;
+}
+
+
+/* =======================================================================
+   三、三个接口的 URL 构造
+   ======================================================================= */
+
+/** 1) 预报（多模型）：一次拿到 3 个模型的 5 个要素，字段带模型后缀 */
+function urlForecast(lat, lon) {
+  const p = new URLSearchParams({
+    latitude:      lat,
+    longitude:     lon,
+    hourly:        'precipitation_probability,precipitation,temperature_2m,cloud_cover,wind_speed_10m',
+    models:        MODELS.join(','),
+    timezone:      TZ,
+    forecast_days: 3
+  });
+  return API_FORECAST + '?' + p.toString();
+}
+
+/** 2) 集合预报：ECMWF 的 50 个成员 */
+function urlEnsemble(lat, lon) {
+  const p = new URLSearchParams({
+    latitude:  lat,
+    longitude: lon,
+    hourly:    ENSEMBLE_FIELD,
+    models:    'ecmwf_ifs025',
+    timezone:  TZ
+  });
+  return API_ENSEMBLE + '?' + p.toString();
+}
+
+/** 3) 地名转坐标：最多返回 5 条候选 */
+function urlGeocode(keyword) {
+  const p = new URLSearchParams({ name: keyword, count: 5, language: 'zh' });
+  return API_GEOCODE + '?' + p.toString();
+}
+
+
+/* =======================================================================
+   四、带缓存的请求封装
+   ======================================================================= */
+
+/**
+ * 请求 JSON，优先走本地缓存（10 分钟内不重复请求）。
+ * 返回 { data, fromCache } —— fromCache 用来在状态栏提示"命中缓存"。
+ *
+ * 失败时抛出带 code 的错误，方便上层翻译成人话：
+ *   'timeout' | 'http_4xx' | 'http_5xx' | 'bad_json' | 'api_error'
+ */
+const REQUEST_TIMEOUT_MS = 15000;   // 单个接口 15 秒；两个接口并行，所以总耗时也在这个量级
+
+/** 构造带错误码的异常（把「为什么失败」和「失败信息」分开，便于分类提示） */
+function apiError(code, message) {
+  const e = new Error(message);
+  e.code = code;
+  return e;
+}
+
+async function fetchJSON(url, useCache = true) {
+  // —— 读缓存（删除缓存功能时，去掉这一段）——
+  if (useCache) {
+    const hit = cacheGet(url);
+    if (hit) return { data: hit, fromCache: true };
+  }
+
+  // 用 AbortController 兜住"请求挂着不返回"的情况，否则页面会一直停在加载态
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let res;
+  try {
+    res = await fetch(url, { signal: controller.signal });
+  } catch (e) {
+    // 主动超时：浏览器把它报成 AbortError，这里换成更好读的错误码
+    if (e && (e.name === 'AbortError' || e.code === 20)) {
+      throw apiError('timeout', `接口超过 ${REQUEST_TIMEOUT_MS / 1000} 秒未响应`);
+    }
+    throw e;   // 其余交给上层按 TypeError（网络层失败）处理
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!res.ok) {
+    const code = res.status >= 500 ? 'http_5xx' : 'http_4xx';
+    throw apiError(code, 'HTTP ' + res.status);
+  }
+
+  let data;
+  try {
+    data = await res.json();
+  } catch (e) {
+    throw apiError('bad_json', '返回内容不是合法 JSON');
+  }
+
+  // 接口把错误信息放在 error / reason 字段里（例如参数不合法）
+  if (data && data.error) throw apiError('api_error', data.reason || '接口返回错误');
+
+  // —— 写缓存（删除缓存功能时，去掉这一段）——
+  if (useCache) cachePut(url, data);
+
+  return { data, fromCache: false };
+}
+
+
+/* =======================================================================
+   五、数据解析：多模型 / 集合预报（全部动态识别字段名，不写死）
+   ======================================================================= */
+
+/**
+ * 从 hourly 中识别实际返回了哪些模型。
+ * 做法：拿一个必定带模型后缀的字段当"探针"（temperature_2m_xxx），
+ *      把后缀切下来就是模型名 —— 这样即使以后换了模型列表也不用改代码。
+ */
+function detectModels(hourly, probeField = 'temperature_2m') {
+  const prefix = probeField + '_';
+  const found = Object.keys(hourly)
+    .filter(k => k.startsWith(prefix))
+    .map(k => k.slice(prefix.length))
+    .filter(m => m.length > 0);
+
+  // 探针字段万一没返回，就退回按请求列表里实际存在的模型过滤
+  return found.length ? found : MODELS.filter(m => hourly['precipitation_' + m]);
+}
+
+/**
+ * 取「某模型 + 某要素」的数组。
+ * 关键：用 "要素名 + '_' + 模型名" 精确拼接，而不是拿要素名去 startsWith，
+ *      否则 precipitation_ 会把 precipitation_probability_xxx 一起误匹配进来。
+ */
+function seriesOf(hourly, field, model) {
+  const arr = hourly[field + '_' + model];
+  return Array.isArray(arr) ? arr : null;
+}
+
+/**
+ * 把多个模型的同一要素按小时求平均（缺字段的模型自动跳过）。
+ * 图 1 用它来生成"综合预报"。
+ */
+function averageAcrossModels(models, modelSeries, field) {
+  const arrs = models.map(m => modelSeries[m] && modelSeries[m][field]).filter(Boolean);
+  if (!arrs.length) return null;
+  const len = Math.min.apply(null, arrs.map(a => a.length));
+  const out = [];
+  for (let i = 0; i < len; i++) out.push(sum(arrs.map(a => Number(a[i]) || 0)) / arrs.length);
+  return out;
+}
+
+/**
+ * 解析集合预报：成员键形如 precipitation_member01 ... precipitation_member50。
+ * 用正则动态收集并排序，不写死成员个数。
+ */
+function parseEnsemble(hourly) {
+  const memberRe = new RegExp('^' + ENSEMBLE_FIELD + '_member(\\d+)$');
+  const memberKeys = Object.keys(hourly)
+    .filter(k => memberRe.test(k))
+    .sort((a, b) => Number(a.match(memberRe)[1]) - Number(b.match(memberRe)[1]));
+
+  return {
+    time:      hourly.time || [],
+    members:   memberKeys.map(k => hourly[k]),   // 每个元素 = 一个成员的完整逐小时序列
+    memberKeys,
+    control:   Array.isArray(hourly[ENSEMBLE_FIELD]) ? hourly[ENSEMBLE_FIELD] : null
+  };
+}
+
+/** 逐小时计算集合统计量，返回 { p10, p50, p90, mean, max } */
+function ensembleStats(ens) {
+  const n = ens.time.length;
+  const p10 = [], p50 = [], p90 = [], mean = [], maxArr = [];
+  for (let i = 0; i < n; i++) {
+    const vals = [];
+    for (let m = 0; m < ens.members.length; m++) {
+      const v = ens.members[m][i];
+      if (v !== null && v !== undefined) vals.push(Number(v) || 0);
+    }
+    vals.sort((a, b) => a - b);
+    p10.push(quantile(vals, 0.10));
+    p50.push(quantile(vals, 0.50));   // 中位数 → 图 3 的粗线
+    p90.push(quantile(vals, 0.90));
+    mean.push(vals.length ? sum(vals) / vals.length : 0);
+    maxArr.push(vals.length ? vals[vals.length - 1] : 0);
+  }
+  return { p10, p50, p90, mean, max: maxArr };
+}
+
+
+/* =======================================================================
+   六、输入校验 —— 坐标超范围时给出提示并阻止查询
+   ======================================================================= */
+
+/** 校验规则：与输入框上的 label 文案保持一致 */
+const COORD_RULES = [
+  { id: 'latInput', name: '纬度', min: -90,  max: 90  },
+  { id: 'lonInput', name: '经度', min: -180, max: 180 }
+];
+
+/** 当前各输入框的错误提示（元素 id → 文案），空对象表示全部合法 */
+const fieldErrors = {};
+
+/** 把用户输入解析成数字。空串 / 非数字 / Infinity 都算无效，并返回原因 */
+function parseCoord(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (s === '') return { value: NaN, why: 'empty' };
+  const v = Number(s);
+  if (!Number.isFinite(v)) return { value: NaN, why: 'nan' };   // 含 NaN 与 ±Infinity（如 1e999）
+  return { value: v, why: '' };
+}
+
+/** 取输入框下方那行小红字的节点；节点由脚本创建，不依赖 HTML 里预写 */
+function ensureFieldError(el) {
+  const box = el && el.parentNode;
+  if (!box || typeof box.appendChild !== 'function') return null;
+  let node = null;
+  try { node = box.querySelector ? box.querySelector('.field-err') : null; } catch (e) { node = null; }
+  if (!node) {
+    node = document.createElement('div');
+    node.className = 'field-err';
+    box.appendChild(node);
+  }
+  return node;
+}
+
+/** 标记某个输入框为错误态。bubble=true 时额外弹浏览器原生提示气泡 */
+function setFieldError(el, msg, bubble) {
+  if (!el) return;
+  fieldErrors[el.id] = msg;
+  if (el.classList) el.classList.add('invalid');
+  try { el.setCustomValidity(msg); } catch (e) {}
+  const node = ensureFieldError(el);
+  if (node) node.textContent = msg;
+  if (bubble) { try { if (el.reportValidity) el.reportValidity(); } catch (e) {} }
+}
+
+/** 清掉某个输入框的错误态（用户改对了就立刻恢复） */
+function clearFieldError(el) {
+  if (!el) return;
+  delete fieldErrors[el.id];
+  if (el.classList) el.classList.remove('invalid');
+  try { el.setCustomValidity(''); } catch (e) {}
+  const node = ensureFieldError(el);
+  if (node) node.textContent = '';
+}
+
+/** 校验两个坐标。返回 { ok, lat, lon, messages }；不合法时已经把提示写到界面 */
+function validateCoords(opts) {
+  const bubble = !(opts && opts.bubble === false);
+  const out = { ok: true, lat: NaN, lon: NaN, messages: [] };
+
+  COORD_RULES.forEach(rule => {
+    const el = document.getElementById(rule.id);
+    if (!el) return;
+
+    const { value, why } = parseCoord(el.value);
+    let msg = '';
+    if (why === 'empty')      msg = `请输入${rule.name}`;
+    else if (why === 'nan')   msg = `${rule.name}必须是数字（当前填写：${String(el.value).trim()}）`;
+    else if (value < rule.min || value > rule.max)
+      msg = `${rule.name}超出范围，必须在 ${rule.min} ~ ${rule.max} 之间（当前填写：${String(el.value).trim()}）`;
+
+    if (msg) { out.ok = false; out.messages.push(msg); setFieldError(el, msg, bubble); }
+    else clearFieldError(el);
+
+    if (rule.id === 'latInput') out.lat = value; else out.lon = value;
+  });
+
+  return out;
+}
+
+/** 输入框内容变化时实时清错误提示（改对了提示就消失，不用等再次点查询） */
+function watchCoordInput(el) {
+  if (!el) return;
+  const handler = () => {
+    if (!fieldErrors[el.id]) return;
+    const rule = COORD_RULES.filter(r => r.id === el.id)[0];
+    if (!rule) { clearFieldError(el); return; }
+    const { value, why } = parseCoord(el.value);
+    const stillBad = why !== '' || value < rule.min || value > rule.max;
+    if (!stillBad) clearFieldError(el);
+  };
+  el.addEventListener('input', handler);
+  el.addEventListener('change', handler);
+}
+
+/* =======================================================================
+   七、错误分类 —— 把异常翻译成「原因 + 技术细节 + 建议」
+   ======================================================================= */
+
+/** HTML 转义：错误信息里可能带 URL 或用户输入，避免被当成标签渲染 */
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+/**
+ * 依 err.code 分类（由 fetchJSON 给出），没有 code 时退回按 name / message 判断。
+ * 返回 { reason, detail, hint }。
+ */
+function classifyError(err) {
+  const detail = (err && (err.message || String(err))) || '未知错误';
+  const code   = err && err.code;
+  const name   = (err && err.name) || '';
+  const msg    = detail.toLowerCase();
+
+  // 1) 主动超时
+  if (code === 'timeout' || name === 'AbortError' || msg.indexOf('timeout') >= 0) {
+    return { reason: '请求超时，接口没有响应',
+             detail,
+             hint: `单个接口超过 ${REQUEST_TIMEOUT_MS / 1000} 秒未返回。网络较慢时点「重试」即可。` };
+  }
+
+  // 2) 网络层失败：断网 / DNS 解析失败 / 被插件或代理拦截 / CORS
+  if (name === 'TypeError' || msg.indexOf('failed to fetch') >= 0 ||
+      msg.indexOf('networkerror') >= 0 || msg.indexOf('load failed') >= 0 ||
+      msg.indexOf('net::') >= 0) {
+    return { reason: '网络连接失败，无法访问 Open-Meteo',
+             detail,
+             hint: '请确认网络正常；若浏览器装了拦截类插件，请把 open-meteo.com 加入白名单。' };
+  }
+
+  // 3) 配额：Open-Meteo 免费版有日调用上限
+  if (code === 'http_4xx' && msg.indexOf('429') >= 0) {
+    return { reason: '请求过于频繁（HTTP 429）',
+             detail,
+             hint: '可能触发了 Open-Meteo 免费版的调用上限，等几分钟再试。' };
+  }
+
+  // 4) 其余 4xx：一般是坐标或参数被接口拒绝
+  if (code === 'http_4xx') {
+    return { reason: '接口拒绝了这次请求（HTTP 4xx）',
+             detail,
+             hint: '多半是坐标或参数不合法，请确认经纬度填写正确后重试。' };
+  }
+
+  // 5) 5xx：对方服务端临时故障
+  if (code === 'http_5xx') {
+    return { reason: 'Open-Meteo 服务端异常（HTTP 5xx）',
+             detail,
+             hint: '通常是接口方临时故障，稍等一会儿再重试一般就能恢复。' };
+  }
+
+  // 6) 返回内容不是 JSON
+  if (code === 'bad_json') {
+    return { reason: '接口返回的数据无法解析',
+             detail,
+             hint: '返回内容不是合法 JSON，常见于网络中间环节改写了响应，重试即可。' };
+  }
+
+  // 7) 接口自己报的错（data.error / data.reason）
+  if (code === 'api_error') {
+    return { reason: '接口返回错误',
+             detail,
+             hint: '请确认坐标有效，或稍后重试。' };
+  }
+
+  return { reason: '请求失败',
+           detail,
+           hint: '可以点「重试」再试一次；若持续失败，请检查网络连接。' };
+}
+
+/* =======================================================================
+   八、主流程：查询（并行请求预报 + 集合预报）
+   ======================================================================= */
+
+let retryCount = 0;    // 连续重试次数，成功后归零，用于在提示里如实告知
+
+/** 请求失败时的状态栏：错误原因 + 技术细节 + 重试按钮 */
+function setStatusError(err) {
+  const info = classifyError(err);
+
+  statusBar.className = 'status err';
+  statusBar.innerHTML =
+    '<div class="err-head"><span class="err-icon">⚠️</span>' +
+      '<span class="err-reason">' + escapeHtml(info.reason) + '</span></div>' +
+    '<div class="err-detail">' + escapeHtml(info.detail) + '</div>' +
+    (retryCount > 0 ? '<div class="err-detail">已重试 ' + retryCount + ' 次仍未成功</div>' : '') +
+    '<div class="err-actions">' +
+      '<button type="button" class="btn-retry" id="retryBtn">重试</button>' +
+      '<span class="err-hint">' + escapeHtml(info.hint) + '</span>' +
+    '</div>';
+
+  const btn = statusBar.querySelector ? statusBar.querySelector('#retryBtn') : null;
+  if (btn) btn.addEventListener('click', onRetry);
+
+  // 首次就失败时页面是空的，把重试按钮滚进视野，别让用户以为卡住了
+  try { if (btn && btn.scrollIntoView) btn.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+
+  return info;
+}
+
+/** 点「重试」：用当前输入框里的坐标再查一次 */
+async function onRetry() {
+  retryCount += 1;                     // 先加：若这次又失败，提示里要如实写"已重试 N 次"
+  await runQuery({ isRetry: true });
+}
+
+async function runQuery(opts) {
+  const isRetry = !!(opts && opts.isRetry);
+  if (!isRetry) retryCount = 0;      // 手动发起的新查询，重新计数
+
+  // 1) 校验输入：不合法就提示并阻止查询（不会发出任何请求）
+  const coord = validateCoords();
+  if (!coord.ok) {
+    setStatus('<b>坐标不合法，已阻止查询：</b><br>' +
+              coord.messages.map(m => '· ' + escapeHtml(m)).join('<br>'), 'err');
+    if (retryCount > 0) retryCount = 0;   // 校验失败不属于"重试未成功"
+    return;
+  }
+  const lat = coord.lat, lon = coord.lon;
+
+  // 2) 进入加载态：顶部进度条 + KPI 骨架屏 + 图表骨架占位
+  ensureRangeBar();            // 防御：万一被编辑器重新序列化抹掉了，这里补回来
+  ensureAdviceCard();          // 同上：综合建议卡也由脚本保证存在
+  setLoading(true, '正在并行请求多模型预报与集合预报接口…');
+
+  try {
+    // 3) 两个接口并行请求
+    const [fcRes, enRes] = await Promise.all([
+      fetchJSON(urlForecast(lat, lon)),
+      fetchJSON(urlEnsemble(lat, lon))
+    ]);
+
+    // 4) 坐标写入 localStorage，下次打开自动填入并自动查询
+    saveCoords(lat, lon, window.__pickedPlace || '');
+
+    // 5) 整理成统一上下文，再交给各渲染函数
+    const ctx = buildContext(fcRes.data, enRes.data);
+    lastCtx = ctx;               // 记下来：切换时间范围时直接用它重绘，不再请求接口、不再消耗配额
+
+    renderKpis(ctx);
+    renderCharts(ctx);           // 图 1 / 图 2 / 图 3 的统一入口（切范围时复用）
+    renderConclusion(ctx);
+    syncRangeButtons();
+
+    // 6) 状态栏：标出每个接口是"命中缓存"还是"实时请求"
+    const tag = (r, label) =>
+      `<span class="tag ${r.fromCache ? 'hit' : ''}">${label}${r.fromCache ? '·缓存' : '·实时'}</span>`;
+    setStatus(
+      `数据就绪 · 纬度 ${fmt(lat, 4)}，经度 ${fmt(lon, 4)}` +
+      (window.__pickedPlace ? '（' + window.__pickedPlace + '）' : '') + '<br>' +
+      tag(fcRes, '多模型预报') + tag(enRes, '集合预报') +
+      `<span class="tag">${ctx.models.length} 个模型</span>` +
+      `<span class="tag">${ctx.ens.members.length} 个集合成员</span>` +
+      (window.__chartLibMissing ? '<span class="tag">⚠ 图表库未加载，图表暂不可用</span>' : ''),
+      'ok'
+    );
+
+    updateTime.textContent = '数据更新时间：' +
+      new Date().toLocaleString('zh-CN', { hour12: false }) + ' ｜ ';
+    refreshCacheInfo();
+    retryCount = 0;              // 成功即归零，下次失败从"未重试"算起
+  } catch (err) {
+    console.error(err);
+    setLoading(false);
+    // 失败时别把上一次的数据一起清掉：有旧数据就继续看旧的，只把错误说清楚
+    if (lastCtx) {
+      [overviewCard, modelCard, ensembleCard].forEach(c => { c.style.display = ''; });
+      if (kpiGrid.querySelector('.kpi.sk')) renderKpis(lastCtx);
+    } else {
+      [overviewCard, modelCard, ensembleCard].forEach(c => { c.style.display = 'none'; });
+      kpiGrid.innerHTML = '';
+    }
+    setStatusError(err);         // 错误原因 + 技术细节 + 重试按钮
+  } finally {
+    setLoading(false);
+  }
+}
+
+
+/* =======================================================================
+   九、把两份原始数据整理成一个统一的"上下文"对象，供各渲染函数使用
+   ======================================================================= */
+
+function buildContext(forecast, ensemble) {
+  const fHourly = forecast.hourly || {};
+  const eHourly = ensemble.hourly || {};
+
+  const fTime  = fHourly.time || [];
+  const fStart = findStartIndex(fTime);       // 预报时间轴上的"当前小时"
+
+  const ens    = parseEnsemble(eHourly);
+  const eStart = findStartIndex(ens.time);    // 集合时间轴上的"当前小时"
+  const stats  = ensembleStats(ens);
+
+  const models = detectModels(fHourly);       // 动态识别实际返回的模型
+
+  // 每个模型的五个要素序列
+  const modelSeries = {};
+  models.forEach(m => {
+    modelSeries[m] = {
+      precipitation:             seriesOf(fHourly, 'precipitation', m),
+      precipitation_probability: seriesOf(fHourly, 'precipitation_probability', m),
+      temperature_2m:            seriesOf(fHourly, 'temperature_2m', m),
+      cloud_cover:               seriesOf(fHourly, 'cloud_cover', m),
+      wind_speed_10m:            seriesOf(fHourly, 'wind_speed_10m', m)
+    };
+  });
+
+  // 预报接口按 forecast_days=3 返回 3 天数据，从"当前小时"起算后剩余的小时数可能不足 72，
+  // 所以这里算出真实可用的小时数，所有文案和切片都以它为准，避免标题与实际不符。
+  const fHours = Math.max(0, Math.min(72, fTime.length - fStart));
+
+  return { fTime, fStart, fHours, models, modelSeries, ens, eStart, stats };
+}
+
+
+/* =======================================================================
+   九之二、不确定性指标（四张卡 + 顶部综合建议的数据来源）
+   -----------------------------------------------------------------------
+   统一口径：未来 48 小时。
+     卡片 1  降雨是否一致：各模型 48h 总雨量 > 0.5mm 记为"有雨"，数 N/3
+     卡片 2  雨量分歧程度：只在"有雨"的模型之间算 (最大 − 最小) ÷ 中位数
+     卡片 3  雨量区间：50 个集合成员各自的 48h 总雨量 → P10 / P90（不含控制成员）
+     卡片 4  峰值时间分歧：各模型 48h 内小时雨量最大的时刻，最早到最晚的跨度
+   ======================================================================= */
+
+const UNC_HOURS   = 48;     // 不确定性指标统一的时间窗口（小时）
+const UNC_RAIN_MM = 0.5;    // 单个模型 48h 总雨量高于它，才算"这个模型认为会下雨"
+
+/** "2026-09-24T03:00" → "03:00"（峰值时刻只需要"几点"） */
+function hhmm(str) {
+  if (!str) return '';
+  const t = splitTime(str);
+  return String(t.h).padStart(2, '0') + ':00';
+}
+
+/** 数值兜底：NaN / Infinity / 非数字 → null（最终统一显示「—」） */
+function numOrNull(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** 一段小时雨的合计；没有数据或全是坏值 → null（而不是 0，避免把"缺数据"画成"没下雨"） */
+function sumSeg(arr) {
+  if (!Array.isArray(arr) || !arr.length) return null;
+  let s = 0;
+  for (let i = 0; i < arr.length; i++) {
+    const n = numOrNull(arr[i]);
+    if (n === null) continue;
+    s += n;
+  }
+  return Number.isFinite(s) ? s : null;
+}
+
+/**
+ * 算出四项不确定性所需的全部中间量。
+ * 容错原则：字段缺失的模型直接不参与（avail 会小于 totalWant），
+ *          任何除零 / 溢出都不抛异常，只把对应结果留成 null，展示层再显示「—」。
+ */
+function computeUncertainty(ctx) {
+  const { fStart, fHours, models, modelSeries, ens, eStart } = ctx;
+
+  // 预报实际能覆盖到的小时数：不足 48 就按实有算，避免把"没数据"当成"没下雨"
+  const win   = Math.max(0, Math.min(UNC_HOURS, fHours));
+  const short = fHours < UNC_HOURS;
+
+  /* ---------- 逐模型：48h 总雨量 + 峰值时刻 ---------- */
+  const perModel = [];
+  (models || []).forEach(key => {
+    const series = modelSeries[key] && modelSeries[key].precipitation;
+    if (!Array.isArray(series)) return;        // 字段缺失 → 这个模型不参与计算
+
+    const seg = series.slice(fStart, fStart + win).map(v => {
+      const n = numOrNull(v);
+      return n === null ? 0 : n;               // 单个坏点当 0，不牵连整列
+    });
+    if (!seg.length) return;
+
+    const total = sumSeg(seg);
+
+    // 峰值时刻：小时雨量最大的那个小时（记下它相对"当前小时"的偏移，便于比跨度）
+    let peakOffset = -1, peakVal = 0;
+    seg.forEach((v, i) => { if (v > peakVal) { peakVal = v; peakOffset = i; } });
+
+    perModel.push({
+      key,
+      name: (MODEL_META[key] || {}).name || key,
+      total,
+      hasRain: total !== null && total > UNC_RAIN_MM,
+      peakOffset,
+      peakValue: peakOffset >= 0 ? peakVal : null,
+      peakTime:  peakOffset >= 0 ? hhmm(ctx.fTime[fStart + peakOffset]) : null
+    });
+  });
+
+  const avail     = perModel.length;                     // 真正拿到数据的模型个数
+  const totalWant = (MODELS && MODELS.length) || 3;      // 请求的就是 3 个
+  const rainSet   = perModel.filter(m => m.hasRain);     // "有雨"的那几个模型
+  const rainCount = rainSet.length;
+
+  /* ---------- 卡片 2：只在有雨模型之间算相对分歧 ---------- */
+  let relDiv = null, divLevel = null, medTotal = null;
+  if (rainSet.length >= 2) {
+    const totals = rainSet.map(m => m.total).filter(v => v !== null).sort((a, b) => a - b);
+    if (totals.length >= 2) {
+      medTotal = quantile(totals, 0.5);
+      if (medTotal > 0) {                               // 中位数为 0 时无法做相对比较
+        const rd = (totals[totals.length - 1] - totals[0]) / medTotal * 100;
+        relDiv = Number.isFinite(rd) ? rd : null;
+      }
+    }
+    if (relDiv !== null) divLevel = divergenceLevel(relDiv);
+  }
+
+  /* ---------- 卡片 3：集合成员 48h 总雨量的 P10 / P90 ---------- */
+  // 只用 precipitation_memberNN（扰动成员），不含裸 precipitation（控制成员）
+  let p10 = null, p50 = null, p90 = null, ensCount = 0, ensMemberTotal = 0;
+  if (ens && Array.isArray(ens.members)) {
+    ensMemberTotal = ens.members.length;
+    // 每个成员各自的 48h 总雨量 → 排序后取分位数（分位数才代表"中间 80%"，不受极端成员摆布）
+    const totals = ens.members
+      .map(arr => sumSeg(Array.isArray(arr) ? arr.slice(eStart, eStart + UNC_HOURS) : null))
+      .filter(v => v !== null)
+      .sort((a, b) => a - b);
+    ensCount = totals.length;                       // 真正算出总量的成员个数
+    if (totals.length >= 2) {
+      p10 = quantile(totals, 0.10);
+      p50 = quantile(totals, 0.50);
+      p90 = quantile(totals, 0.90);
+    }
+  }
+  const ensOk = [p10, p50, p90].every(v => Number.isFinite(v));
+
+  /* ---------- 卡片 4：峰值时刻跨度（只比较"有雨"的模型） ---------- */
+  const peakModels = rainSet.filter(m => m.peakOffset >= 0 && m.peakValue > 0);
+  let spanHours = null;
+  if (peakModels.length >= 2) {
+    const offs = peakModels.map(m => m.peakOffset);
+    spanHours = Math.max.apply(null, offs) - Math.min.apply(null, offs);
+  }
+
+  return {
+    win, short, avail, totalWant,
+    perModel, rainSet, rainCount,
+    relDiv, divLevel, medTotal,
+    p10, p50, p90, ensOk, ensCount, ensMemberTotal,
+    peakModels, spanHours,
+    peakLevel: spanHours === null ? null : peakSpanLevel(spanHours)
+  };
+}
+
+/** 相对分歧 → 等级：<20% 一致／20~50% 轻微／50~100% 明显／>100% 严重 */
+function divergenceLevel(relDiv) {
+  if (relDiv < 20)   return { text: '一致',     cls: 'c-ok' };
+  if (relDiv < 50)   return { text: '轻微分歧', cls: 'c-warn' };
+  if (relDiv <= 100) return { text: '明显分歧', cls: 'c-orange' };
+  return { text: '严重分歧', cls: 'c-danger' };
+}
+
+/** 峰值时刻跨度 → 等级：≤2h 一致／3~5h 轻微／>5h 明显 */
+function peakSpanLevel(span) {
+  if (span <= 2) return { text: '一致',     cls: 'c-ok' };
+  if (span <= 5) return { text: '轻微分歧', cls: 'c-warn' };
+  return { text: '明显分歧', cls: 'c-orange' };
+}
+
+/** 模型有缺失时统一在卡片里补一句「N/3 个模型可用」 */
+function availNote(u) {
+  return u.avail < u.totalWant ? `（${u.avail}/${u.totalWant} 个模型可用）` : '';
+}
+
+/**
+ * 顶部综合建议：一句话结论 + 依据。
+ * 三个模型都可用时严格按需求的四句话；模型有缺失时退化成最接近的一条，
+ * 并在依据里如实写上「N/3 个模型可用」，不假装是完整判断。
+ */
+function buildAdvice(u) {
+  const { rainCount, avail, relDiv } = u;
+  const allRain = avail > 0 && rainCount === avail;
+
+  let text, cls;
+  if (avail === 0) {
+    text = '模型数据不可用，无法给出建议';
+    cls  = 'adv-none';
+  } else if (rainCount === 0) {
+    text = '都认为不下雨，不用带伞';
+    cls  = 'adv-none';
+  } else if (allRain && relDiv !== null && relDiv < 20) {
+    text = '雨会下，量也基本确定，按预报准备';
+    cls  = 'adv-ok';
+  } else if (allRain) {
+    // 全部模型都认为有雨，但量级不统一（或只有一个模型可用、没法交叉验证量级）
+    text = '雨会下，但量不确定 → 带伞，别做防涝准备';
+    cls  = 'adv-warn';
+  } else {
+    text = '模型对是否下雨都没共识 → 别信模型，去看雷达实况';
+    cls  = 'adv-danger';
+  }
+
+  const parts = [];
+  if (avail === 0) {
+    parts.push('没有可用的模型数据');
+  } else {
+    parts.push(`${rainCount}/${avail} 模型预测有雨`);
+  }
+  if (relDiv !== null)   parts.push(`雨量相对分歧 ${fmt(relDiv, 0)}%`);
+  if (u.spanHours !== null) parts.push(`峰值时间跨度 ${u.spanHours} 小时`);
+  if (u.short)           parts.push(`预报仅覆盖 ${u.win} 小时`);
+  if (avail < u.totalWant) parts.push(`${avail}/${u.totalWant} 个模型可用`);
+
+  return { text, cls, why: '依据：' + parts.join('；') };
+}
+
+/** 四张不确定性卡片的文案（含各种"数据不足"的降级写法） */
+function uncertaintyCards(u) {
+  const cards = [];
+  const tail = availNote(u);
+
+  /* 卡片 1｜降雨是否一致 */
+  let value, cls, note;
+  if (u.avail === 0) {
+    value = '—'; cls = 'c-muted'; note = '没有可用的模型数据';
+  } else if (u.rainCount === 0) {
+    value = '一致，都认为不下雨'; cls = 'c-muted';
+    note = `${u.rainCount}/${u.avail} 个模型 48h 雨量 > ${UNC_RAIN_MM}mm`;
+  } else if (u.rainCount === u.avail) {
+    value = '一致，雨会下'; cls = 'c-ok';
+    note = `${u.rainCount}/${u.avail} 个模型 48h 雨量 > ${UNC_RAIN_MM}mm`;
+  } else {
+    value = '⚠️ 分歧：有的说下有的说不下'; cls = 'c-danger';
+    note = `${u.rainCount}/${u.avail} 个模型认为有雨，其余认为没有`;
+  }
+  cards.push({ label: '降雨是否一致（48h）', value, cls, note: note + tail });
+
+  /* 卡片 2｜雨量分歧程度（只在有雨的模型之间比较） */
+  const rainNames = u.rainSet.map(m => `${m.name} ${fmt(m.total)}mm`).join(' · ');
+  if (u.rainCount === 0) {
+    cards.push({ label: '雨量分歧程度', value: '—', cls: 'c-muted',
+      note: '没有模型预报有效降雨，无需比较' + tail });
+  } else if (u.rainCount === 1) {
+    cards.push({ label: '雨量分歧程度', value: '样本不足', cls: 'c-muted',
+      note: `只有 ${u.rainSet[0].name} 有雨（${fmt(u.rainSet[0].total)}mm），无法比较` + tail });
+  } else if (u.relDiv === null) {
+    cards.push({ label: '雨量分歧程度', value: '—', cls: 'c-muted',
+      note: '可用模型的中位雨量为 0，无法计算相对分歧' + tail });
+  } else {
+    cards.push({ label: '雨量分歧程度', value: fmt(u.relDiv, 0), unit: '%', cls: u.divLevel.cls,
+      note: `${rainNames} ｜ ${u.divLevel.text}` + tail });
+  }
+
+  /* 卡片 3｜雨量区间（P10 ~ P90） */
+  if (u.ensOk) {
+    cards.push({
+      label: '雨量区间（P10~P90）',
+      value: `${fmt(u.p10)} ~ ${fmt(u.p90)}`, unit: 'mm', cls: 'c-accent2',
+      note: `覆盖 80% 集合成员，中位数 ${fmt(u.p50)} mm`
+    });
+  } else {
+    cards.push({
+      label: '雨量区间（P10~P90）', value: '数据不足', cls: 'c-muted',
+      note: u.ensCount ? `只有 ${u.ensCount} 个集合成员可用`
+        : (u.ensMemberTotal ? '集合成员的雨量数据不可用' : '集合成员数据不可用')
+    });
+  }
+
+  /* 卡片 4｜峰值时间分歧 */
+  const peakNames = u.peakModels.map(m => `${m.name} ${m.peakTime}`).join(' · ');
+  if (!u.peakModels.length) {
+    cards.push({ label: '峰值时间分歧', value: '无有效降水', cls: 'c-muted',
+      note: u.rainCount
+        ? '有雨但峰值时刻不明确，无法比较'
+        : `${u.win}h 内各模型雨量均 ≤ ${UNC_RAIN_MM}mm` });
+  } else if (u.spanHours === null) {
+    cards.push({ label: '峰值时间分歧', value: '样本不足', cls: 'c-muted',
+      note: `${u.peakModels[0].name} ${u.peakModels[0].peakTime}（只有 1 个模型有雨，无法比较）` });
+  } else {
+    cards.push({ label: '峰值时间分歧', value: `${u.spanHours} 小时`, cls: u.peakLevel.cls,
+      note: `${peakNames} ｜ ${u.peakLevel.text}` + tail });
+  }
+
+  return cards;
+}
+
+
+/* =======================================================================
+   十、渲染：KPI 速览（分三组：核心数字 / 不确定性 / 环境）
+   ======================================================================= */
+
+function renderKpis(ctx) {
+  const { fStart, fHours, models, modelSeries, ens, eStart, stats } = ctx;
+
+  /* 集合中位数：未来 24 小时 / 未来 7 天（集合时间轴覆盖 7 天） */
+  const p50_24  = sum(stats.p50.slice(eStart, eStart + 24));
+  const p50_all = sum(stats.p50.slice(eStart));
+
+  /* 未来 48 小时"有效降雨"概率
+     口径：某个成员只要在 48 小时内出现过 ≥0.5mm 的小时，就算这个成员预报了有效降雨 */
+  let hitMembers = 0;
+  ens.members.forEach(m => {
+    if (m.slice(eStart, eStart + 48).some(v => (Number(v) || 0) >= 0.5)) hitMembers++;
+  });
+  const rainProb48 = ens.members.length ? Math.round(hitMembers / ens.members.length * 100) : 0;
+
+  /* 集合成员整体缺失时，凡是从成员算出来的数字都不要假装是 0，统一显示「—」 */
+  const ensUsable = ens.members.length > 0;
+
+  /* 四项不确定性（48h 口径）+ 顶部综合建议：两者共用同一份计算结果 */
+  const unc = computeUncertainty(ctx);
+  renderAdvice(unc);
+
+  /* 未来 24 小时气温：各模型求平均后取区间 */
+  const temps = models.map(m => modelSeries[m].temperature_2m)
+    .filter(Boolean).map(a => a.slice(fStart, fStart + 24).map(Number));
+  let tempValue = '—', tempNote = '—';
+  if (temps.length) {
+    const len = Math.min.apply(null, temps.map(a => a.length));
+    const avg = [];
+    for (let i = 0; i < len; i++) avg.push(sum(temps.map(a => a[i])) / temps.length);
+    tempValue = fmt(sum(avg) / (avg.length || 1), 1);
+    tempNote  = `${fmt(minOf(avg))}℃ ~ ${fmt(maxOf(avg))}℃（24h）`;
+  }
+
+  /* 可用时段内的最大风速：模型平均后的峰值 */
+  const winds = models.map(m => modelSeries[m].wind_speed_10m)
+    .filter(Boolean).map(a => a.slice(fStart, fStart + fHours).map(Number));
+  let windValue = '—', windNote = '—';
+  if (winds.length) {
+    const len = Math.min.apply(null, winds.map(a => a.length));
+    let peak = 0;
+    for (let i = 0; i < len; i++) {
+      const v = sum(winds.map(a => a[i])) / winds.length;
+      if (v > peak) peak = v;
+    }
+    windValue = fmt(peak, 1);
+    windNote  = peak >= 39 ? '风力较强，注意防范' : (peak >= 25 ? '风力中等偏大' : '风力温和');
+  }
+
+  /* 未来 24 小时平均云量 */
+  const clouds = models.map(m => modelSeries[m].cloud_cover)
+    .filter(Boolean).map(a => a.slice(fStart, fStart + 24).map(Number));
+  let cloudAvg = 0;
+  if (clouds.length) {
+    const len = Math.min.apply(null, clouds.map(a => a.length));
+    let s = 0, c = 0;
+    for (let i = 0; i < len; i++) { s += sum(clouds.map(a => a[i])) / clouds.length; c++; }
+    cloudAvg = c ? s / c : 0;
+  }
+
+  /* ---------- 第 2 组：核心数字 ---------- */
+  const coreCards = [
+    { label: '未来 24h 降雨（集合中位数）',
+      value: ensUsable ? fmt(p50_24) : '—', unit: ensUsable ? 'mm' : '',
+      note: ensUsable ? (p50_24 >= 0.5 ? '有可感知的降雨' : '基本无有效降雨') : '集合成员数据不可用',
+      cls: !ensUsable ? 'c-muted' : (p50_24 >= 10 ? 'c-warn' : (p50_24 >= 0.5 ? 'c-accent' : 'c-ok')) },
+
+    { label: '48h 有效降雨概率',
+      value: ensUsable ? String(rainProb48) : '—', unit: ensUsable ? '%' : '',
+      note: ensUsable ? `${hitMembers}/${ens.members.length} 个集合成员预报有雨` : '集合成员数据不可用',
+      cls: !ensUsable ? 'c-muted' : (rainProb48 >= 70 ? 'c-accent2' : (rainProb48 >= 35 ? 'c-warn' : 'c-ok')) },
+
+    { label: '未来 7 天累计（集合中位数）',
+      value: ensUsable ? fmt(p50_all) : '—', unit: ensUsable ? 'mm' : '',
+      note: ensUsable ? totalNote(p50_all) : '集合成员数据不可用',
+      cls: ensUsable ? totalClass(p50_all) : 'c-muted' }
+  ];
+
+  /* ---------- 第 4 组：环境 ---------- */
+  const envCards = [
+    { label: '未来 24h 气温', value: tempValue, unit: '℃', note: tempNote, cls: 'c-accent' },
+
+    { label: `未来 ${fHours}h 最大风速`, value: windValue, unit: 'km/h', note: windNote, cls: 'c-accent' },
+
+    { label: '未来 24h 云量', value: String(Math.round(cloudAvg)), unit: '%',
+      note: skyText(cloudAvg), cls: 'c-accent2' }
+  ];
+
+  /* ---------- 按 核心数字 → 不确定性 → 环境 三组渲染 ---------- */
+  const uncNote = `未来 ${unc.win} 小时 · 有雨阈值 ${UNC_RAIN_MM}mm` +
+    (unc.short ? `（预报仅覆盖 ${unc.win} 小时）` : '') +
+    (unc.avail < unc.totalWant ? ` ｜ ${unc.avail}/${unc.totalWant} 个模型可用` : '');
+
+  kpiGrid.className = 'kpi-groups';   // 容器不再自己排网格，网格交给每组里的 .kpi-grid
+  kpiGrid.innerHTML =
+    kpiGroupHtml('核心数字', '', coreCards) +
+    kpiGroupHtml('不确定性', uncNote, uncertaintyCards(unc)) +
+    kpiGroupHtml('环境', '', envCards);
+}
+
+/** 一个卡片分组：小标题 + 自适应网格 */
+function kpiGroupHtml(title, note, cards) {
+  return '<div class="kpi-group">' +
+      '<div class="kpi-group-title">' + title +
+        (note ? '<span class="g-note">' + note + '</span>' : '') +
+      '</div>' +
+      '<div class="kpi-grid">' + cards.map(kpiCardHtml).join('') + '</div>' +
+    '</div>';
+}
+
+/** 单张数据卡 */
+function kpiCardHtml(c) {
+  return '<div class="kpi">' +
+      '<div class="k-label">' + c.label + '</div>' +
+      '<div class="k-value ' + (c.cls || '') + '">' + c.value +
+        (c.unit ? '<span class="unit">' + c.unit + '</span>' : '') +
+      '</div>' +
+      '<div class="k-note">' + c.note + '</div>' +
+    '</div>';
+}
+
+/**
+ * 顶部综合建议卡：整行、字号最大。
+ * 卡片是脚本建出来的 —— 编辑器重新序列化 <body> 时会抹掉手写节点，
+ * 由脚本创建才能保证每次打开都在（与结论卡同一套做法）。
+ */
+function ensureAdviceCard() {
+  let card = document.getElementById('adviceCard');
+  if (card) return card;
+
+  card = document.createElement('section');
+  card.id = 'adviceCard';
+  card.className = 'card advice-card';
+  card.style.display = 'none';
+
+  const main = document.createElement('div');
+  main.id = 'adviceMain';
+  main.className = 'adv-main';
+
+  const why = document.createElement('div');
+  why.id = 'adviceWhy';
+  why.className = 'adv-why';
+
+  card.appendChild(main);
+  card.appendChild(why);
+
+  // 插在数据卡片区最上方；找不到锚点就挂到主容器末尾，保证一定存在
+  if (kpiGrid && kpiGrid.parentNode) kpiGrid.parentNode.insertBefore(card, kpiGrid);
+  else {
+    const wrap = document.querySelector('.wrap');
+    if (wrap) wrap.appendChild(card);
+  }
+  return card;
+}
+
+/** 渲染综合建议（颜色随结论变化） */
+function renderAdvice(unc) {
+  const card = ensureAdviceCard();
+  if (!card) return;
+
+  const advice = buildAdvice(unc);
+  const main = document.getElementById('adviceMain');
+  const why  = document.getElementById('adviceWhy');
+  if (main) main.textContent = advice.text;
+  if (why)  why.textContent  = advice.why;
+
+  card.className = 'card advice-card ' + advice.cls;
+  card.style.display = '';
+}
+
+/** 7 天累计雨量的分级文案 */
+function totalNote(total) {
+  if (total < 0.1) return '基本无有效降水';
+  if (total < 10)  return '降水偏弱，零星小雨为主';
+  if (total < 30)  return '有中等强度降雨过程';
+  if (total < 60)  return '累计雨量偏大，注意出行';
+  return '累计雨量很大，需重点防范';
+}
+function totalClass(total) {
+  if (total < 0.1) return 'c-ok';
+  if (total < 30)  return 'c-accent';
+  if (total < 60)  return 'c-warn';
+  return 'c-danger';
+}
+
+
+/* =======================================================================
+   十一、Chart.js 通用配置（深色主题）
+   ======================================================================= */
+
+const AXIS_COLOR = '#9bb0cd';
+
+/** 公共 options：各图差异通过参数传入
+ *  tooltipTitle / tooltipLabel / tooltipFilter / tooltipAfterBody 都是"悬停提示"的钩子，
+ *  每张图按自己的数据结构传进来，实现"hover 显示具体数值和时刻"。 */
+function baseOptions({
+  yTitle, yMax = null, y1Title = null, xTicks = 8,
+  tooltipTitle = null, tooltipLabel = null,
+  tooltipFilter = null, tooltipAfterBody = null, animate = 800
+}) {
+  const opts = {
+    responsive: true,
+    maintainAspectRatio: false,          // 高度交给外层 .chart-box 控制，方便做响应式
+    animation: animate === 0 ? false : { duration: animate },
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: {
+        labels: {
+          color: '#c7d5e8', boxWidth: 12, boxHeight: 12,
+          usePointStyle: true, font: { size: 12 },
+          // 图 3 的成员线太多，用 dataset.showInLegend 标记过滤掉，不进图例
+          filter: (item, chartData) => {
+            const ds = chartData.datasets[item.datasetIndex];
+            return ds && ds.showInLegend !== false;
+          }
+        }
+      },
+      tooltip: {
+        backgroundColor: 'rgba(10, 16, 28, 0.94)',
+        titleColor: '#e6edf7',
+        bodyColor: '#c7d5e8',
+        borderColor: 'rgba(148, 163, 184, 0.28)',
+        borderWidth: 1,
+        padding: 11,
+        cornerRadius: 10,
+        itemSort: (a, b) => (b.parsed.y || 0) - (a.parsed.y || 0),   // 雨大的排前面
+        callbacks: {}
+      }
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+        ticks: { color: AXIS_COLOR, maxRotation: 0, autoSkip: true, maxTicksLimit: xTicks, font: { size: 11 } }
+      },
+      y: {
+        position: 'left',
+        beginAtZero: true,
+        title: { display: !!yTitle, text: yTitle || '', color: AXIS_COLOR, font: { size: 11 } },
+        grid: { color: 'rgba(148, 163, 184, 0.12)' },
+        ticks: { color: AXIS_COLOR, font: { size: 11 } }
+      }
+    }
+  };
+
+  if (yMax !== null) opts.scales.y.max = yMax;
+
+  // 右轴（概率专用）
+  if (y1Title) {
+    opts.scales.y1 = {
+      position: 'right',
+      beginAtZero: true,
+      max: 100,
+      title: { display: true, text: y1Title, color: AXIS_COLOR, font: { size: 11 } },
+      grid: { display: false },
+      ticks: { color: AXIS_COLOR, font: { size: 11 }, callback: v => v + '%' }
+    };
+  }
+
+  if (tooltipFilter)    opts.plugins.tooltip.filter = tooltipFilter;
+  if (tooltipAfterBody) opts.plugins.tooltip.callbacks.afterBody = tooltipAfterBody;
+  if (tooltipTitle)     opts.plugins.tooltip.callbacks.title = tooltipTitle;
+  if (tooltipLabel)     opts.plugins.tooltip.callbacks.label = tooltipLabel;
+
+  return opts;
+}
+
+/** "2026-09-24T03:00" → "9/24 03:00 周四"（悬停提示的标题，带上星期更容易读懂） */
+function fullTimeLabel(str) {
+  if (!str) return '';
+  const t = splitTime(str);
+  return `${t.M}/${t.D} ${String(t.h).padStart(2, '0')}:00 ${weekdayCN(t.Y, t.M, t.D)}`;
+}
+
+/** 生成 "9/23 15时" 形式的横轴标签 */
+function hourLabels(timeArr, startIdx, len) {
+  const out = [];
+  for (let i = startIdx; i < Math.min(startIdx + len, timeArr.length); i++) {
+    const t = splitTime(timeArr[i]);
+    out.push(`${t.M}/${t.D} ${String(t.h).padStart(2, '0')}时`);
+  }
+  return out;
+}
+
+/** 统一销毁旧图表并显示卡片 */
+function resetChart(instance, cardEl) {
+  if (instance) instance.destroy();
+  cardEl.style.display = '';
+}
+
+
+/* =======================================================================
+   十二、图 1：逐小时降雨双轴图（柱=降水量，线=降水概率）
+   -----------------------------------------------------------------------
+   降水量与概率的量纲不同（mm vs %），所以用左右两个 Y 轴。
+   数据取三个数值模型的平均值，作为"综合预报"。
+   ======================================================================= */
+
+function renderOverviewChart(ctx) {
+  const { fTime, fStart, fHours, models, modelSeries } = ctx;
+
+  // 时间范围由「24 / 48 / 72 小时」切换器决定；预报接口只给 3 天，
+  // 从当前小时起算后剩余时长可能不足 72，所以再按实际可用时长夹一次。
+  const want = currentRange;
+  const n    = Math.max(0, Math.min(want, fHours));
+  const labels = hourLabels(fTime, fStart, n);
+
+  // 多模型平均的降水量 / 降水概率
+  const avgPrecip = averageAcrossModels(models, modelSeries, 'precipitation');
+  const avgProb   = averageAcrossModels(models, modelSeries, 'precipitation_probability');
+
+  // 标题按实际可用时长动态生成，避免"写了 72 小时、实际只画 57 小时"
+  if (overviewTitle) overviewTitle.textContent = '逐小时降雨总览';
+  if (overviewSub)   overviewSub.textContent   =
+    `柱=降水量(mm)　线=降水概率(%)　未来 ${n} 小时` +
+    (want > fHours ? `（预报数据仅 ${fHours} 小时）` : '');
+
+  const precipData = avgPrecip ? avgPrecip.slice(fStart, fStart + n).map(v => round2(v)) : labels.map(() => null);
+  const probData   = avgProb   ? avgProb.slice(fStart, fStart + n).map(v => Math.round(v)) : labels.map(() => null);
+
+  const datasets = [
+    {
+      type: 'bar',
+      label: '降水量 (mm)',
+      data: precipData,
+      backgroundColor: 'rgba(56, 189, 248, 0.62)',
+      hoverBackgroundColor: 'rgba(56, 189, 248, 0.92)',
+      borderColor: '#38bdf8',
+      borderWidth: 1,
+      borderRadius: 4,
+      maxBarThickness: 26,
+      yAxisID: 'y',
+      order: 2
+    },
+    {
+      type: 'line',
+      label: '降水概率 (%)',
+      data: probData,
+      borderColor: MEDIAN_LINE_COLOR,
+      backgroundColor: 'rgba(167, 139, 250, 0.16)',
+      borderWidth: 2.2,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      tension: 0.35,
+      fill: true,
+      spanGaps: true,
+      yAxisID: 'y1',
+      order: 1
+    }
+  ];
+
+  resetChart(charts.overview, overviewCard);
+
+  charts.overview = new Chart(
+    document.getElementById('overviewChart').getContext('2d'),
+    {
+      type: 'bar',
+      data: { labels, datasets },
+      options: baseOptions({
+        yTitle: '降水量 (mm)',
+        y1Title: '降水概率 (%)',
+        xTicks: 8,
+        // 悬停标题：完整的日期 + 整点 + 星期
+        tooltipTitle: items => fullTimeLabel(fTime[fStart + items[0].dataIndex]),
+        // 每条数据带上量纲，避免只看到一个裸数字
+        tooltipLabel: item => item.datasetIndex === 0
+          ? `降水量：${fmt(item.parsed.y, 2)} mm`
+          : `降水概率：${Math.round(item.parsed.y)}%`,
+        // 补充：本时是否有雨 + 往后 6 小时累计（看连续性比单点更有用）
+        tooltipAfterBody: items => {
+          const k = items[0].dataIndex;
+          const v = Number(precipData[k]) || 0;
+          const last6 = precipData.slice(Math.max(0, k - 5), k + 1);
+          const p6    = sum(last6.map(x => Number(x) || 0));
+          return [
+            v >= 0.1 ? '本小时有降雨' : '本小时基本无雨',
+            `近 6 小时（含本时）累计：${fmt(p6, 2)} mm`
+          ];
+        }
+      })
+    }
+  );
+}
+
+
+/* =======================================================================
+   十三、图 2：多模型对比折线图
+   -----------------------------------------------------------------------
+   三个模型各画一条折线，颜色区分（ECMWF 天蓝 / GFS 琥珀 / ICON 绿）。
+   ======================================================================= */
+
+function renderModelChart(ctx) {
+  const { fTime, fStart, fHours, models, modelSeries } = ctx;
+
+  // 与图 1 共用同一个时间范围
+  const n = Math.max(0, Math.min(currentRange, fHours));
+  const labels = hourLabels(fTime, fStart, n);
+
+  const datasets = models.map(m => {
+    const meta = MODEL_META[m] || { name: m, color: '#38bdf8' };
+    const arr  = modelSeries[m].precipitation;
+    return {
+      label: meta.name,
+      data: arr ? arr.slice(fStart, fStart + n).map(v => Number(v) || 0) : labels.map(() => null),
+      borderColor: meta.color,
+      backgroundColor: meta.color + '1f',
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      tension: 0.35,
+      fill: false,
+      spanGaps: true
+    };
+  });
+
+  // 右上角小字把实际返回的模型名列出来
+  modelSub.textContent = models.map(m => (MODEL_META[m] ? MODEL_META[m].name : m)).join(' / ') + `，未来 ${n} 小时`;
+
+  resetChart(charts.model, modelCard);
+
+  charts.model = new Chart(
+    document.getElementById('modelChart').getContext('2d'),
+    {
+      type: 'line',
+      data: { labels, datasets },
+      options: baseOptions({
+        yTitle: '降水量 (mm)',
+        xTicks: 8,
+        tooltipTitle: items => fullTimeLabel(fTime[fStart + items[0].dataIndex]),
+        // 每条线标出是哪个模型 + 具体雨量
+        tooltipLabel: item => `${item.dataset.label}：${fmt(item.parsed.y, 2)} mm`,
+        // 补充：此刻三个模型拉开的差距，以及谁最大（一眼看出分歧）
+        tooltipAfterBody: items => {
+          const i   = fStart + items[0].dataIndex;
+          const val = models.map(m => {
+            const arr = modelSeries[m].precipitation;
+            return arr ? (Number(arr[i]) || 0) : 0;
+          });
+          const mx   = Math.max.apply(null, val);
+          const mn   = Math.min.apply(null, val);
+          const gap  = mx - mn;
+          const top  = models[val.indexOf(mx)];
+          const topN = MODEL_META[top] ? MODEL_META[top].name : top;
+          const lines = [
+            `三模型极差：${fmt(gap, 2)} mm　最大 ${topN} ${fmt(mx, 2)} mm`
+          ];
+          if (mn > 0 && mx / mn > 3) lines.push('此时刻模型分歧较大');
+          else if (gap < 0.1)        lines.push('此时刻模型基本一致');
+          else                       lines.push('此时刻模型差距不大');
+          return lines;
+        }
+      })
+    }
+  );
+}
+
+
+/* =======================================================================
+   十四、图 3：集合预报面条图
+   -----------------------------------------------------------------------
+   每个集合成员画一条半透明细灰线，再叠加一条粗线表示中位数。
+   性能考虑：50 个成员 × 168 小时 ≈ 8400 个点，手机端会卡，
+            因此成员线按步长抽样绘制（点与点之间用 spanGaps 连起来），
+            而中位数粗线保持全分辨率，保证精度。
+   ======================================================================= */
+
+function renderEnsembleChart(ctx) {
+  const { ens, eStart, stats } = ctx;
+  const total = ens.time.length;
+
+  // 时间范围与图 1 / 图 2 共用；集合时间轴有 7 天，所以按窗口裁剪到 [eStart, eStart + eff)
+  const avail = Math.max(1, total - eStart);
+  const eff   = Math.max(1, Math.min(currentRange, avail));
+
+  // 横轴标签（只画窗口内的时刻，下标 k 对应原始下标 eStart + k）
+  const labels = [];
+  for (let k = 0; k < eff; k++) {
+    const t = splitTime(ens.time[eStart + k]);
+    labels.push(`${t.M}/${t.D} ${String(t.h).padStart(2, '0')}时`);
+  }
+
+  // 成员线抽样步长：手机端抽得更稀一些，保证滚动流畅
+  const step = window.innerWidth < 560 ? 4 : 2;
+
+  const datasets = [];
+
+  // 1) 每个集合成员：一条半透明细灰线
+  ens.members.forEach((series, mi) => {
+    datasets.push({
+      label: '成员' + (mi + 1),
+      data: labels.map((_, k) => (k % step === 0 ? (Number(series[eStart + k]) || 0) : null)),
+      borderColor: MEMBER_LINE_COLOR,
+      borderWidth: 0.8,
+      pointRadius: 0,
+      tension: 0.3,
+      fill: false,
+      spanGaps: true,          // 抽样的空隙直接连过去
+      showInLegend: false,     // 50 条不进图例，改用页面上的自定义图例说明
+      isMember: true,          // 给 tooltip 过滤用
+      order: 5
+    });
+  });
+
+  // 2) 集合中位数：粗线，绘制在最上层（保持逐小时全分辨率）
+  datasets.push({
+    label: '集合中位数',
+    data: labels.map((_, k) => stats.p50[eStart + k]),
+    borderColor: MEDIAN_LINE_COLOR,
+    backgroundColor: 'rgba(167, 139, 250, 0.10)',
+    borderWidth: 3,
+    pointRadius: 0,
+    pointHoverRadius: 5,
+    tension: 0.3,
+    fill: false,
+    spanGaps: true,
+    showInLegend: true,
+    isMember: false,
+    order: 1
+  });
+
+  ensMemberCount.textContent = String(ens.members.length);
+  ensSub.textContent = `ECMWF ${ens.members.length} 个成员，未来 ${eff} 小时`;
+  ensNote.textContent =
+    `成员之间散得越开，说明预报越不确定；如果大部分成员都贴近中位数，则这次预报的可信度较高。` +
+    `（为保证手机端流畅，成员线按每 ${step} 小时一个点绘制，中位数为逐小时全分辨率。）`;
+
+  resetChart(charts.ensemble, ensembleCard);
+
+  const options = baseOptions({
+    yTitle: '降雨量 (mm)',
+    xTicks: 8,
+    animate: 0,   // 成员太多，关掉动画避免卡顿
+    tooltipTitle: items => fullTimeLabel(ens.time[eStart + items[0].dataIndex]),
+    // tooltip 过滤掉 50 条成员线，否则一屏全是"成员xx"
+    tooltipFilter: (item) => !item.dataset.isMember,
+    tooltipLabel: item => `集合中位数：${fmt(item.parsed.y, 2)} mm`,
+    tooltipAfterBody: (items) => {
+      // 窗口内的 dataIndex 要换算回集合时间轴的原始下标
+      const i    = eStart + items[0].dataIndex;
+      const vals = ens.members.map(m => Number(m[i]) || 0);
+      const wet  = vals.filter(v => v >= 0.1).length;
+      return [
+        `10% 分位（偏少）：${fmt(stats.p10[i], 2)} mm`,
+        `90% 分位（偏多）：${fmt(stats.p90[i], 2)} mm`,
+        `集合均值：${fmt(stats.mean[i], 2)} mm ｜ 成员最大：${fmt(stats.max[i], 2)} mm`,
+        `预报有雨的成员：${wet}/${vals.length}（${Math.round(wet / (vals.length || 1) * 100)}%）`
+      ];
+    }
+  });
+
+  charts.ensemble = new Chart(
+    document.getElementById('ensembleChart').getContext('2d'),
+    { type: 'line', data: { labels, datasets }, options }
+  );
+}
+
+
+/* =======================================================================
+   十五、结论与建议（面板的核心：把图表里的一堆数字翻译成人话）
+   -----------------------------------------------------------------------
+   四个关键指标统一取"预报接口的多模型平均"，口径一致才能互相对照：
+     ① 未来 24 小时总降水量   ② 最大小时雨强（含出现时刻）
+     ③ 降水概率峰值（含出现时刻） ④ 主要降雨时段（>0.1mm 的连续小时合并）
+   带伞建议与模式一致性按固定阈值判定（阈值写在 renderConclusion 里）：
+     · 概率峰值 > 50% 或 24h 总降水 > 1mm  → 建议带伞
+     · 最大小时雨强 > 5mm                  → 追加"可能有短时强降水，注意"
+     · 三个模型 24h 雨量的 max ÷ min > 3    → 提示模式分歧较大
+   ======================================================================= */
+
+/** "2026-09-24T03:00" → "9/24 03时"（写法与图表的横轴标签保持一致） */
+function hourText(str) {
+  const t = splitTime(str);
+  return `${t.M}/${t.D} ${String(t.h).padStart(2, '0')}时`;
+}
+
+/** 起止时刻 → "9/24 03时至07时"（同一天自动省略后半段的日期，读起来更顺） */
+function rangeText(a, b) {
+  const s = splitTime(a), e = splitTime(b);
+  return hourText(a) + '至' + ((e.M === s.M && e.D === s.D) ? `${String(e.h).padStart(2, '0')}时` : hourText(b));
+}
+
+/** 时间字符串 +1 小时（用 UTC 计算，避免时区被二次偏移）
+ *  一个"小时点"代表 [t, t+1h) 这一整段，所以降雨末端的结束时刻要往后推 1 小时 */
+function plusOneHour(str) {
+  const t = splitTime(str);
+  const d = new Date(Date.UTC(t.Y, t.M - 1, t.D, t.h + 1));
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:00`;
+}
+
+/** 保留两位小数。多模型求平均会带来浮点尾巴（三个 0.1 平均后是 0.10000000000000002），
+ *  直接用 > 0.1 这类阈值判断会被这个尾巴骗到，所以比较前先抹平 */
+function round2(x) { return Math.round((Number(x) || 0) * 100) / 100; }
+
+/** 某个窗口内的累计值 / 峰值 / 峰值所在下标 */
+function windowStats(series, start, count) {
+  let total = 0, peak = 0, peakIdx = -1;
+  const arr = series || [];
+  for (let i = start; i < start + count && i < arr.length; i++) {
+    const v = Number(arr[i]) || 0;
+    total += v;
+    if (v > peak) { peak = v; peakIdx = i; }
+  }
+  return { total, peak, peakIdx };
+}
+
+/** 把 series 中 > threshold（严格大于）的"连续小时"合并成降雨时段
+ *  返回 [{i, j, total, peak}]，i / j 为时间轴下标（含两端）
+ *  比较时统一先 round2，并留 1e-9 容差，避免浮点尾巴把"刚好等于阈值"的小时算进来 */
+function rainPeriods(series, start, count, threshold = 0.1) {
+  const out = [];
+  const arr = series || [];
+  let cur = null;
+  for (let i = start; i < start + count && i < arr.length; i++) {
+    const v = round2(arr[i]);
+    if (v > threshold + 1e-9) {
+      if (!cur) cur = { i, j: i, total: 0, peak: 0 };
+      cur.j = i; cur.total += v; if (v > cur.peak) cur.peak = v;
+    } else if (cur) { out.push(cur); cur = null; }   // 断了，收一段
+  }
+  if (cur) out.push(cur);                            // 末尾还在下，收尾
+  return out;
+}
+
+/** 结论区的小指标卡 */
+function metricCard(label, value, unit, cls, sub) {
+  return '<div class="cn-item">' +
+    `<div class="cn-label">${label}</div>` +
+    `<div class="cn-value ${cls}">${value}${unit ? `<span class="unit">${unit}</span>` : ''}</div>` +
+    `<div class="cn-sub">${sub || ''}</div>` +
+  '</div>';
+}
+
+function renderConclusion(ctx) {
+  const { fTime, fStart, fHours, models, modelSeries, ens, eStart, stats } = ctx;
+
+  /* 24 小时窗口：接口按 forecast_days=3 返回，从"当前小时"起算若不足 24 小时则按实际可用长度 */
+  const WIN = Math.max(0, Math.min(24, fHours));
+
+  /* 下面四个指标统一取"预报接口的多模型平均"，口径一致才谈得上互相对照
+     （集合接口只有降水、没有概率，混用两个数据源会让人对不上） */
+  const avgPrecip = averageAcrossModels(models, modelSeries, 'precipitation');
+  const avgProb   = averageAcrossModels(models, modelSeries, 'precipitation_probability');
+
+  const wp = windowStats(avgPrecip, fStart, WIN);   // 降水量窗口
+  const wq = windowStats(avgProb,   fStart, WIN);   // 降水概率窗口
+
+  const total24      = wp.total;                                        // ① 未来 24h 总降水量
+  const maxIntensity = wp.peak;                                         // ② 最大小时雨强
+  const maxIntTime   = maxIntensity > 0 && wp.peakIdx >= 0 ? fTime[wp.peakIdx] : null;
+  const peakProb     = Math.round(wq.peak);                             // ③ 降水概率峰值
+  const peakProbTime = wq.peakIdx >= 0 ? fTime[wq.peakIdx] : null;
+
+  /* ④ 主要降雨时段：>0.1mm 的连续小时合并后，取累计雨量最大的一段（并列时取更长的一段） */
+  const periods = rainPeriods(avgPrecip, fStart, WIN, 0.1)
+    .sort((a, b) => (b.total - a.total) || ((b.j - b.i) - (a.j - a.i)));
+  const main = periods.length ? periods[0] : null;
+
+  let periodText, periodSub;
+  if (main) {
+    periodText = rangeText(fTime[main.i], plusOneHour(fTime[main.j]));
+    periodSub  = periods.length > 1
+      ? `24 小时内有 ${periods.length} 段间歇降雨，这是雨量最大的一段（约 ${fmt(main.total)} 毫米）`
+      : `连续降雨累计约 ${fmt(main.total)} 毫米`;
+  } else {
+    periodText = '无有效降雨时段';
+    // 24 小时内没有，就往后看看还有没有零星降雨，避免只回一句"没有"太单薄
+    const later = rainPeriods(avgPrecip, fStart + WIN, Math.max(0, fHours - WIN), 0.1);
+    periodSub = later.length
+      ? `更晚的 ${rangeText(fTime[later[0].i], plusOneHour(fTime[later[0].j]))} 可能有零星小雨`
+      : '24 小时内三个模型都没预报出成片降雨';
+  }
+
+  /* ---------- 带伞建议（严格按给定阈值） ---------- */
+  const needUmbrella = peakProb > 50 || total24 > 1;   // 概率 > 50% 或 总降水 > 1mm → 建议带伞
+  const heavyRain    = maxIntensity > 5;               // 最大小时雨强 > 5mm → 追加短时强降水提醒
+  let uText = needUmbrella ? '建议带伞' : '基本不用带伞';
+  if (heavyRain) uText += '，可能有短时强降水，注意';
+  const uCls  = heavyRain ? 'heavy' : (needUmbrella ? 'need' : 'no');
+  const uIcon = heavyRain ? '⚠️' : (needUmbrella ? '☔' : '☀️');
+
+  // 把判定依据摆出来，用户能自己核对结论是否正确
+  const reasons = [];
+  if (peakProb > 50) reasons.push(`概率峰值 ${peakProb}%`);
+  if (total24 > 1)   reasons.push(`累计雨量 ${fmt(total24)} 毫米`);
+  if (heavyRain)     reasons.push(`最大雨强 ${fmt(maxIntensity)} 毫米/小时`);
+  const uNote = reasons.length ? reasons.join(' ｜ ') : '未来 24 小时无明显降水信号';
+
+  /* ---------- 主结论句 ---------- */
+  let verdict;
+  if (total24 < 0.1)       verdict = `未来 24 小时该地点<b>基本没有有效降雨</b>`;
+  else if (total24 < 1)    verdict = `未来 24 小时该地点<b>降雨很弱，约 ${fmt(total24)} 毫米</b>`;
+  else if (total24 < 10)   verdict = `未来 24 小时该地点<b>预计降雨约 ${fmt(total24)} 毫米</b>`;
+  else if (total24 < 25)   verdict = `未来 24 小时该地点<b>降雨明显，约 ${fmt(total24)} 毫米</b>`;
+  else                     verdict = `未来 24 小时该地点<b>雨量较大，约 ${fmt(total24)} 毫米</b>`;
+
+  if (main) verdict += `，主要集中在 ${rangeText(fTime[main.i], plusOneHour(fTime[main.j]))}`;
+  verdict += '。';
+  if (maxIntTime && maxIntensity >= 0.5) {
+    verdict += ` 最强的一小时出现在 ${hourText(maxIntTime)}前后，雨强约 ${fmt(maxIntensity)} 毫米/小时。`;
+  }
+  verdictBox.innerHTML = verdict;
+
+  /* ---------- 四项关键指标 ---------- */
+  conclusionSub.textContent = WIN >= 24 ? '未来 24 小时' : `未来 ${WIN} 小时`;
+  conclusionGrid.innerHTML = [
+    metricCard('未来 24 小时总降水量', fmt(total24), '毫米',
+               total24 >= 1 ? 'c-accent' : 'c-ok',
+               total24 < 0.1 ? '低于 0.1 毫米，可视为无雨' : totalNote(total24)),
+    metricCard('最大小时雨强', fmt(maxIntensity), '毫米/小时',
+               maxIntensity > 5 ? 'c-danger' : (maxIntensity > 1 ? 'c-warn' : 'c-accent'),
+               maxIntTime ? `出现在 ${hourText(maxIntTime)}` : '窗口内无降水'),
+    metricCard('降水概率峰值', String(peakProb), '%',
+               peakProb > 50 ? 'c-warn' : 'c-accent',
+               peakProbTime ? `出现在 ${hourText(peakProbTime)}` : '—'),
+    metricCard('主要降雨时段', periodText, '', 'c-accent2', periodSub)
+  ].join('');
+
+  /* ---------- 带伞建议横幅 ---------- */
+  umbrellaBox.innerHTML =
+    `<div class="umbrella ${uCls}"><span class="u-icon">${uIcon}</span>` +
+    `<span>${uText}</span><span class="u-note">${uNote}</span></div>`;
+
+  /* ---------- 模式一致性（三个模型 24h 雨量：最大值 ÷ 最小值 > 3 → 提示分歧） ---------- */
+  const perModel24 = models.map(m => {
+    const arr = modelSeries[m].precipitation;
+    return arr ? round2(sum(arr.slice(fStart, fStart + WIN))) : 0;
+  });
+  const mx = maxOf(perModel24), mn = minOf(perModel24);
+  // 最小值可能正好是 0（某个模型认为完全不下雨），这时比值趋于无穷，用 Infinity 表示
+  const ratio  = mn > 0 ? mx / mn : (mx > 0 ? Infinity : 1);
+  const detail = models.map((m, i) =>
+    `${MODEL_META[m] ? MODEL_META[m].name : m} ${fmt(perModel24[i])}`).join(' / ');
+
+  const ratioText = Number.isFinite(ratio) ? fmt(ratio) + ' 倍' : '极大';
+
+  if (ratio > 3 && mx >= 0.1) {
+    // 补一个 mx 下限：雨量小到 0.1mm 以下时，几倍差距也没有实际意义，不值得报警
+    agreeBox.innerHTML =
+      '<div class="alert warn"><span>⚠️</span><span>' +
+      '<b>模式分歧较大，这场雨的把握不高。</b><br>' +
+      `三个模型给出的 24 小时雨量最多相差 ${ratioText}（${detail} 毫米），` +
+      '建议临近时再看一次最新预报。' +
+      '</span></div>';
+  } else if (ratio > 1.8 && mx >= 0.1) {
+    // 没到 3 倍不至于否定结论，但 3 倍左右时说"比较接近"也不诚实，单独给一档
+    agreeBox.innerHTML =
+      '<div class="alert ok"><span>·</span><span>' +
+      `三个模型的 24 小时雨量有一定差距（${detail} 毫米，相差 ${ratioText}），` +
+      '但没到 3 倍的分歧阈值，雨量级的判断仍可参考。' +
+      '</span></div>';
+  } else {
+    agreeBox.innerHTML =
+      '<div class="alert ok"><span>✓</span><span>' +
+      `三个模型的 24 小时雨量比较接近（${detail} 毫米），这场雨的把握较高。` +
+      '</span></div>';
+  }
+
+  /* =======================================================================
+     补充提示（带伞建议已在上面的横幅里给了，这里只放其它有用信息）
+     ======================================================================= */
+  const advice = [];
+
+  // 集合口径的长时效参考：中位数 = 最可能情形，90% 分位 = 偏多情形
+  const total7  = sum(stats.p50.slice(eStart));
+  const p90_all = sum(stats.p90.slice(eStart));
+  const p90_48  = sum(stats.p90.slice(eStart, eStart + 48));
+
+  // 集合成员里"预报有雨"的比例：某个成员只要 48h 内出现过 ≥0.5mm 的小时就算有雨
+  let wet48 = 0;
+  ens.members.forEach(m => {
+    if (m.slice(eStart, eStart + 48).some(v => (Number(v) || 0) >= 0.5)) wet48++;
+  });
+  const prob48 = ens.members.length ? Math.round(wet48 / ens.members.length * 100) : 0;
+
+  // 气温（用来判断下的是雨还是雪）
+  const temps = models.map(m => modelSeries[m].temperature_2m).filter(Boolean);
+  let minTemp = null;
+  if (temps.length) {
+    const len = Math.min.apply(null, temps.map(a => a.length));
+    const avg = [];
+    for (let i = fStart; i < len; i++) avg.push(sum(temps.map(a => a[i])) / temps.length);
+    minTemp = minOf(avg);
+  }
+
+  // 1) 长时效参考（24 小时之外的情况）
+  advice.push({
+    text: total7 < 0.1
+      ? '把眼光拉长到 7 天：集合预报的中位数显示依然没有有效降雨，可以放心安排户外计划。'
+      : `把眼光拉长到 7 天：集合预报的中位数累计雨量约 ${fmt(total7)} 毫米，${totalNote(total7)}。`,
+    cls: ''
+  });
+
+  // 2) 集合概率怎么读
+  if (prob48 >= 85) {
+    advice.push({ text: `未来 48 小时内 ${prob48}% 的集合成员预报有雨，降雨基本确定，请提前安排行程。`, cls: '' });
+  } else if (prob48 >= 50) {
+    advice.push({ text: `未来 48 小时内有 ${prob48}% 的集合成员预报有雨，降雨可能性较大但仍有变数。`, cls: '' });
+  } else if (prob48 > 0) {
+    advice.push({ text: `未来 48 小时仅 ${prob48}% 的集合成员预报有雨，降水以短时、局地性为主。`, cls: '' });
+  } else {
+    advice.push({ text: '所有集合成员均未预报未来 48 小时有明显降雨。', cls: '' });
+  }
+
+  // 3) 偏多情形提醒（用 90% 分位说话）
+  if (p90_48 >= 25) {
+    advice.push({ text: `偏多情形下未来 48 小时雨量可达 ${fmt(p90_48)} 毫米，需留意城市内涝与低洼路段积水。`, cls: 'danger' });
+  } else if (p90_48 >= 10) {
+    advice.push({ text: `偏多情形下未来 48 小时雨量约 ${fmt(p90_48)} 毫米，出行请预留更多时间。`, cls: 'warn' });
+  }
+
+  // 3b) 7 天尺度的偏多情形（中位数明显低于 90% 分位 → 长时效不确定性偏大）
+  if (p90_all > total7 * 1.2 && p90_all > 0.5) {
+    advice.push({ text: `7 天累计的偏多情形（90% 分位）可达 ${fmt(p90_all)} 毫米，明显高于中位数的 ${fmt(total7)} 毫米，长时效预报的不确定性偏大。`, cls: 'warn' });
+  }
+
+  // 4) 雨雪判断：温度低 + 有降水 → 可能雨夹雪或雪
+  if (minTemp !== null && minTemp < 3 && total7 >= 0.5) {
+    advice.push({ text: `降水时段最低气温约 ${fmt(minTemp)}℃，高海拔或夜间可能出现雨夹雪乃至降雪，注意保暖与道路结冰。`, cls: 'warn' });
+  }
+
+  // 5) 天空状况
+  const clouds = models.map(m => modelSeries[m].cloud_cover).filter(Boolean);
+  if (clouds.length) {
+    const len = Math.min.apply(null, clouds.map(a => a.length));
+    let s = 0, c = 0;
+    for (let i = fStart; i < Math.min(len, fStart + 24); i++) { s += sum(clouds.map(a => a[i])) / clouds.length; c++; }
+    const avg = c ? s / c : 0;
+    advice.push({ text: `未来 24 小时平均云量约 ${Math.round(avg)}%，天空状况以 ${skyText(avg)} 为主。`, cls: '' });
+  }
+
+  // 6) 风速
+  const winds = models.map(m => modelSeries[m].wind_speed_10m).filter(Boolean);
+  if (winds.length) {
+    const len = Math.min.apply(null, winds.map(a => a.length));
+    let peak = 0;
+    for (let i = fStart; i < len; i++) {
+      const v = sum(winds.map(a => a[i])) / winds.length;
+      if (v > peak) peak = v;
+    }
+    advice.push({
+      text: peak >= 39
+        ? `未来 ${fHours} 小时最大风速约 ${fmt(peak)} km/h，风力较强，注意固定户外物品。`
+        : `未来 ${fHours} 小时最大风速约 ${fmt(peak)} km/h，风力温和，对出行影响不大。`,
+      cls: peak >= 39 ? 'warn' : ''
+    });
+  }
+
+  adviceBox.innerHTML = advice.map(a => `<li class="${a.cls}">${a.text}</li>`).join('');
+  conclusionCard.style.display = '';
+}
+
+
+/* =======================================================================
+   十六、地名搜索（地理编码接口）
+   ======================================================================= */
+
+async function doSearch() {
+  const keyword = (keywordInput.value || '').trim();
+  if (!keyword) {
+    searchResults.innerHTML = '<div class="status">请输入地名关键词。</div>';
+    return;
+  }
+
+  searchBtn.disabled = true;
+  searchBtn.textContent = '搜索中…';
+  searchResults.innerHTML = '<div class="status"><span class="spinner"></span>正在查询地名…</div>';
+
+  try {
+    const { data, fromCache } = await fetchJSON(urlGeocode(keyword));
+    const list = data.results || [];
+
+    if (!list.length) {
+      searchResults.innerHTML = '<div class="status">未找到匹配的地点，换个关键词试试。</div>';
+      return;
+    }
+
+    // 渲染候选列表，点任意一条即填入坐标并立即查询
+    searchResults.innerHTML = list.map((r, i) => {
+      const region = [r.admin1, r.admin2, r.country].filter(Boolean).join(' · ');
+      const pop    = r.population ? ' ｜ 人口约 ' + Math.round(r.population / 10000) + ' 万' : '';
+      return `
+        <div class="search-item" data-idx="${i}">
+          <div>
+            <div class="place">${r.name || '未命名'}</div>
+            <div class="region">${region || '—'}${pop}</div>
+          </div>
+          <div class="coord">${fmt(r.latitude, 4)}, ${fmt(r.longitude, 4)}</div>
+        </div>`;
+    }).join('') + (fromCache ? '<div class="chart-note">（本次结果来自本地缓存）</div>' : '');
+
+    // 绑定点击事件
+    Array.from(searchResults.querySelectorAll('.search-item')).forEach(el => {
+      el.addEventListener('click', () => {
+        const r = list[Number(el.dataset.idx)];
+        latInput.value = r.latitude;
+        lonInput.value = r.longitude;
+        // 记录地点名，查询成功后会一起存进 localStorage
+        window.__pickedPlace = [r.name, r.admin1].filter(Boolean).join('，');
+        keywordInput.value = r.name || keyword;
+        runQuery();
+      });
+    });
+  } catch (err) {
+    console.error(err);
+    searchResults.innerHTML = `<div class="status err">地名查询失败：${err.message}</div>`;
+  } finally {
+    searchBtn.disabled = false;
+    searchBtn.textContent = '搜索';
+  }
+}
+
+
+/* =======================================================================
+   十七、交互层：时间范围切换 + 加载状态
+   -----------------------------------------------------------------------
+   这两块的样式和结构同样由脚本注入（原因同结论区：本文件被带可视化编辑的
+   编辑器打开时，<body> 会被重新序列化，手工写进 HTML 的节点会被抹掉）。
+   时间范围只作用于三张图表；结论卡按需求固定看"未来 24 小时"。
+   ======================================================================= */
+
+const RANGE_KEY     = 'rainPanel.range';       // 时间范围也记住，下次打开沿用
+const RANGE_OPTIONS = [24, 48, 72];
+
+/** 读取上次选择的时间范围（默认 48 小时） */
+function loadRange() {
+  try {
+    const v = parseInt(localStorage.getItem(RANGE_KEY), 10);
+    return RANGE_OPTIONS.indexOf(v) >= 0 ? v : 48;
+  } catch (e) { return 48; }
+}
+function saveRange(v) { try { localStorage.setItem(RANGE_KEY, String(v)); } catch (e) {} }
+
+let currentRange = loadRange();   // 当前时间范围（小时）
+let lastCtx      = null;          // 最近一次查询的数据上下文：切范围时用它重绘，不重新请求接口
+
+
+/* ---------- 交互层样式（脚本注入，主题与页面一致） ---------- */
+const INTERACTION_CSS = `
+/* 时间范围切换条：吸顶浮层，滚动到图表区时一直可用
+   注意：它必须"看起来像一张卡片"。之前的写法是 0.86 不透明的深蓝 + 999px 胶囊圆角，
+   比页面里的卡片还黑，一旦窄屏换行变成两行，圆角被撑成巨型胶囊 —— 就成了一块
+   看不出是什么的深色色块。现在改成与卡片同色、同圆角语言，颜色和形状都能解释得通。 */
+.range-bar {
+  position: sticky;
+  top: 8px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 9px 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(20, 30, 51, 0.92);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  backdrop-filter: blur(14px) saturate(1.25);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .26);
+  font-size: 13px;
+}
+.range-bar .rb-label { color: var(--muted); white-space: nowrap; }
+.range-bar .rb-hint  { margin-left: auto; color: var(--muted); font-size: 11.5px; }
+
+.seg {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(8, 13, 24, 0.5);
+}
+.seg button {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  padding: 5px 13px;
+  border-radius: 999px;
+  transition: background .18s, color .18s;
+  white-space: nowrap;
+}
+.seg button:hover { color: var(--text); background: rgba(148, 163, 184, 0.14); }
+.seg button.on {
+  color: #04121f;
+  background: var(--accent);
+  box-shadow: 0 3px 12px rgba(56, 189, 248, .35);
+}
+
+/* 顶部加载进度条（不确定态来回滑动） */
+.load-bar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  z-index: 999;
+  overflow: hidden;
+  pointer-events: none;
+}
+.load-bar i {
+  display: block;
+  height: 100%;
+  width: 42%;
+  background: linear-gradient(90deg, transparent, var(--accent), var(--accent-2), transparent);
+  animation: barSlide 1.1s ease-in-out infinite;
+}
+@keyframes barSlide {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(280%); }
+}
+
+/* 主按钮里的转圈图标：按钮是浅蓝底，转圈要用深色才看得见 */
+.btn-primary .spinner {
+  border-color: rgba(4, 18, 31, .3);
+  border-top-color: #04121f;
+}
+
+/* 骨架屏：灰块 + 流光 */
+.sk { background: rgba(148, 163, 184, 0.06) !important; border-color: rgba(148, 163, 184, 0.1) !important; }
+.sk .sk-line {
+  position: relative;
+  overflow: hidden;
+  height: 10px;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.14);
+  margin-bottom: 9px;
+}
+.sk .sk-line:last-child { margin-bottom: 0; }
+.sk .sk-line::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.22), transparent);
+  animation: shimmer 1.25s infinite;
+}
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+
+/* 图表加载占位（盖在 .chart-box 上，不影响 canvas 尺寸） */
+.chart-sk {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  padding: 18px 8px 26px;
+  border-radius: 12px;
+  background: rgba(8, 13, 24, 0.35);
+}
+.chart-sk i {
+  flex: 1;
+  border-radius: 4px 4px 0 0;
+  background: rgba(148, 163, 184, 0.16);
+  animation: skPulse 1.3s ease-in-out infinite;
+}
+@keyframes skPulse { 0%, 100% { opacity: .4; } 50% { opacity: 1; } }
+.chart-sk-tip {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 12.5px;
+  letter-spacing: .3px;
+  pointer-events: none;
+}
+
+/* 图表库加载失败时的占位提示 */
+.chart-lib-err {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 26px;
+  border-radius: 12px;
+  text-align: center;
+  background: rgba(251, 191, 36, 0.07);
+  border: 1px dashed rgba(251, 191, 36, 0.35);
+  color: #f3d489;
+  font-size: 13px;
+  line-height: 1.9;
+}
+.chart-lib-err b { display: block; margin-bottom: 4px; font-size: 14px; }
+
+@media (max-width: 560px) {
+  .range-bar { padding: 10px 12px; }
+  .range-bar .rb-hint { margin-left: 0; width: 100%; }
+  .seg { width: 100%; }
+  .seg button { flex: 1; padding: 7px 0; }
+}
+`;
+
+function injectInteractionStyles() {
+  if (document.getElementById('interactionStyle')) return;
+  const style = document.createElement('style');
+  style.id = 'interactionStyle';
+  style.textContent = INTERACTION_CSS;
+  document.head.appendChild(style);
+}
+
+
+/* ---------- 顶部加载进度条 ---------- */
+function ensureLoadBar() {
+  const old = document.getElementById('loadBar');
+  if (old) old.remove();                       // 防御：清掉可能被序列化残留的旧节点
+  const bar = document.createElement('div');
+  bar.id = 'loadBar';
+  bar.className = 'load-bar';
+  bar.style.display = 'none';
+  bar.innerHTML = '<i></i>';
+  document.body.appendChild(bar);
+}
+
+
+/* ---------- 图表骨架占位 ---------- */
+function addChartSkeleton(card) {
+  if (!card) return;
+  const box = card.querySelector('.chart-box');
+  if (!box || box.querySelector('.chart-sk')) return;
+  const sk = document.createElement('div');
+  sk.className = 'chart-sk';
+  let bars = '';
+  for (let i = 0; i < 22; i++) {               // 用正弦函数造一排高低起伏的假柱子
+    const h = 16 + Math.round(Math.abs(Math.sin(i * 1.7)) * 64);
+    bars += '<i style="height:' + h + '%"></i>';
+  }
+  sk.innerHTML = bars + '<span class="chart-sk-tip"><span class="spinner"></span>正在加载图表…</span>';
+  box.appendChild(sk);
+}
+function removeChartSkeleton(card) {
+  if (!card) return;
+  const sk = card.querySelector('.chart-sk');
+  if (sk) sk.remove();
+}
+
+
+/* ---------- KPI 骨架屏（形状跟着三个分组走：3 / 4 / 3 张） ---------- */
+function renderKpiSkeleton() {
+  const skCard = '<div class="kpi sk">' +
+                   '<div class="sk-line" style="width:58%"></div>' +
+                   '<div class="sk-line" style="width:44%;height:20px;margin:12px 0"></div>' +
+                   '<div class="sk-line" style="width:78%;height:9px"></div>' +
+                 '</div>';
+  const skGroup = (title, n) =>
+    '<div class="kpi-group">' +
+      '<div class="kpi-group-title">' + title + '</div>' +
+      '<div class="kpi-grid">' + skCard.repeat(n) + '</div>' +
+    '</div>';
+
+  kpiGrid.className = 'kpi-groups';
+  kpiGrid.innerHTML =
+    skGroup('核心数字', 3) + skGroup('不确定性', 4) + skGroup('环境', 3);
+}
+
+
+/* ---------- 加载态总开关 ---------- */
+function setLoading(on, text) {
+  const bar = document.getElementById('loadBar');
+  if (bar) bar.style.display = on ? '' : 'none';
+
+  if (on) {
+    queryBtn.disabled = true;
+    geoBtn.disabled   = true;
+    queryBtn.innerHTML = '<span class="spinner"></span>查询中…';
+
+    renderKpiSkeleton();                      // KPI 区先铺骨架（三组：3 / 4 / 3）
+    const advice = document.getElementById('adviceCard');
+    if (advice) advice.style.display = 'none'; // 建议要等数据算完，先收起，别让旧结论配新骨架
+    [overviewCard, modelCard, ensembleCard].forEach(card => {
+      card.style.display = '';                // 让图表卡现身，但要盖着骨架
+      addChartSkeleton(card);
+    });
+    conclusionCard.style.display = 'none';    // 结论要等数据算完才有意义，先不显示
+
+    setStatus('<span class="spinner"></span>' + (text || '正在加载数据…'));
+  } else {
+    queryBtn.disabled = false;
+    geoBtn.disabled   = false;
+    queryBtn.textContent = '查询';
+
+    [overviewCard, modelCard, ensembleCard].forEach(removeChartSkeleton);
+  }
+}
+
+
+/* ---------- 时间范围切换条 ---------- */
+function ensureRangeBar() {
+  const old = document.getElementById('rangeBar');
+  if (old) old.remove();                      // 防御：避免残留节点造成两条切换条
+
+  const bar = document.createElement('div');
+  bar.id = 'rangeBar';
+  bar.className = 'range-bar';
+
+  const label = document.createElement('span');
+  label.className = 'rb-label';
+  label.textContent = '时间范围';
+
+  const seg = document.createElement('div');
+  seg.className = 'seg';
+  RANGE_OPTIONS.forEach(h => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.hours = String(h);
+    b.textContent = h + ' 小时';
+    b.addEventListener('click', () => applyRange(h));
+    seg.appendChild(b);
+  });
+
+  const hint = document.createElement('span');
+  hint.className = 'rb-hint';
+
+  bar.appendChild(label);
+  bar.appendChild(seg);
+  bar.appendChild(hint);
+
+  // 插在图 1 之前；万一找不到锚点就挂到主容器末尾，保证一定存在
+  const anchor = document.getElementById('overviewCard');
+  if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(bar, anchor);
+  else document.querySelector('.wrap').appendChild(bar);
+
+  syncRangeButtons();
+}
+
+/** 同步按钮高亮态与右侧说明文字 */
+function syncRangeButtons() {
+  const bar = document.getElementById('rangeBar');
+  if (!bar) return;
+
+  bar.querySelectorAll('.seg button').forEach(b => {
+    const on = Number(b.dataset.hours) === currentRange;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+
+  const hint = bar.querySelector('.rb-hint');
+  if (hint) {
+    hint.textContent = '三张图同步切换；结论卡固定看未来 24 小时' +
+      (lastCtx ? ` ｜ 预报数据共 ${lastCtx.fHours} 小时` : '');
+  }
+}
+
+/** 切换时间范围：只重绘图表，不重新请求接口（省配额，也更快） */
+function applyRange(hours) {
+  if (RANGE_OPTIONS.indexOf(hours) < 0 || hours === currentRange) return;
+  currentRange = hours;
+  saveRange(hours);
+  syncRangeButtons();
+  if (lastCtx) renderCharts(lastCtx);
+}
+
+/** 三张图的统一入口：初次渲染与切换范围都走这里 */
+function renderCharts(ctx) {
+  // Chart.js 没加载出来（离线、或 CDN 被网络策略拦掉）时，别让整页跟着挂：
+  // KPI 与结论不依赖 Chart.js，照常显示，只在图表位置给一句能看懂的提示。
+  if (typeof Chart === 'undefined') {
+    window.__chartLibMissing = true;
+    [overviewCard, modelCard, ensembleCard].forEach(showChartLibError);
+    return;
+  }
+  window.__chartLibMissing = false;
+  [overviewCard, modelCard, ensembleCard].forEach(clearChartLibError);
+
+  renderOverviewChart(ctx);   // 图 1
+  renderModelChart(ctx);      // 图 2
+  renderEnsembleChart(ctx);   // 图 3
+}
+
+/** 图表库缺失时的占位提示（盖在图表容器上） */
+function showChartLibError(card) {
+  if (!card) return;
+  card.style.display = '';
+  const box = card.querySelector('.chart-box');
+  if (!box || box.querySelector('.chart-lib-err')) return;
+  const d = document.createElement('div');
+  d.className = 'chart-lib-err';
+  d.innerHTML = '<b>图表库未能加载</b>' +
+    'Chart.js 的 CDN 没能访问成功。上面的数据统计与结论不受影响，' +
+    '图表需要联网加载图表库，请检查网络后刷新页面。';
+  box.appendChild(d);
+}
+function clearChartLibError(card) {
+  if (!card) return;
+  const d = card.querySelector('.chart-lib-err');
+  if (d) d.remove();
+}
+
+injectInteractionStyles();
+ensureLoadBar();
+ensureRangeBar();
+ensureAdviceCard();
+
+
+/* =======================================================================
+   十八、定位 / 缓存按钮 / 事件绑定 / 初始化
+   ======================================================================= */
+
+function locateMe() {
+  if (!navigator.geolocation) {
+    setStatus('当前浏览器不支持定位功能，请手动输入坐标。', 'err');
+    return;
+  }
+
+  setStatus('<span class="spinner"></span>正在获取你的位置…');
+  geoBtn.disabled = true;
+
+  navigator.geolocation.getCurrentPosition(
+    // 成功：填入坐标并立即查询
+    (pos) => {
+      latInput.value = Number(pos.coords.latitude.toFixed(4));
+      lonInput.value = Number(pos.coords.longitude.toFixed(4));
+      window.__pickedPlace = '';
+      geoBtn.disabled = false;
+      runQuery();
+    },
+    // 失败：按错误码给中文提示
+    (err) => {
+      geoBtn.disabled = false;
+      const map = {
+        1: '定位权限被拒绝，请在浏览器地址栏允许位置访问。',
+        2: '暂时无法获取位置信息，请检查设备定位是否开启。',
+        3: '定位超时，请重试或手动输入坐标。'
+      };
+      setStatus(map[err.code] || '定位失败，请手动输入坐标。', 'err');
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+  );
+}
+
+/** 刷新页脚的缓存状态提示 */
+function refreshCacheInfo() {
+  cacheInfo.textContent = '｜ 本地缓存 ' + cacheCount() + ' 条（10 分钟内复用） ';
+}
+
+/* ---- 事件绑定 ---- */
+searchBtn.addEventListener('click', doSearch);
+keywordInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+// 注意：这里包一层，避免把 MouseEvent 当成 runQuery 的参数传进去
+queryBtn.addEventListener('click', () => runQuery());
+geoBtn.addEventListener('click', locateMe);
+[latInput, lonInput].forEach(el => {
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') runQuery(); });
+  watchCoordInput(el);        // 实时清掉"超范围"提示：改对了就立刻恢复
+});
+
+// 手动清空缓存（运行时的"删除缓存"，不需要改代码）
+clearCacheBtn.addEventListener('click', () => {
+  clearApiCache();
+  refreshCacheInfo();
+  setStatus('本地缓存已清空，下次查询会重新请求接口。', 'ok');
+});
+
+/* ---- 初始化：优先用 localStorage 里的坐标，否则用默认值，并自动查询一次 ---- */
+(function init() {
+  const saved = loadCoords();
+  const lat = saved ? saved.lat : DEFAULT_LAT;
+  const lon = saved ? saved.lon : DEFAULT_LON;
+
+  latInput.value = lat;
+  lonInput.value = lon;
+  window.__pickedPlace = (saved && saved.name) ? saved.name : '';
+
+  refreshCacheInfo();
+  if (saved) setStatus('已恢复上次保存的坐标，正在自动查询…');
+
+  runQuery();
+})();
+</script>
+</body>
+</html>
