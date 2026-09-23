@@ -56,7 +56,58 @@
   .wrap { max-width: 1080px; margin: 0 auto; }
 
   /* ==================== 顶部标题 ==================== */
-  .page-head { margin-bottom: 18px; }
+  .page-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px 18px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+
+  .page-head .head-text { min-width: 0; }
+
+  /* 页首工具条：缓存状态 + 清空入口（缓存在哪、新不新，是这套面板的关键信息） */
+  .head-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding-top: 4px;
+  }
+
+  .cache-pill {
+    font-size: 11.5px;
+    color: var(--muted);
+    background: rgba(148, 163, 184, 0.1);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 11px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .btn-tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 6px 13px;
+    color: var(--muted);
+    background: rgba(148, 163, 184, 0.1);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .btn-tool svg { flex: none; opacity: .8; }
+  .btn-tool:hover:not(:disabled) {
+    color: var(--text);
+    background: rgba(56, 189, 248, 0.12);
+    border-color: rgba(56, 189, 248, 0.5);
+  }
+  .btn-tool:hover:not(:disabled) svg { opacity: 1; }
+  .btn-tool:disabled { opacity: .45; }
 
   .page-head h1 {
     margin: 0 0 6px;
@@ -201,6 +252,22 @@
   .search-item .region   { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .search-item .coord    { font-size: 11.5px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
+  /* flex 子项默认 min-width: auto —— 内容不肯收缩。遇到超长且**不可断行**的地名
+     （例如 Llanfairpwllgwyngyllgogerychwyrndrobwllllantysiliogogogoch），
+     左侧那一列会被顶到 400px 以上，把坐标列挤出卡片，整页跟着横向滚动。
+     实测 390px 视口下整页 scrollWidth 比 clientWidth 多 170px。
+     修法两条：
+       ① 左列 min-width: 0 允许收缩；
+       ② 文本加 overflow-wrap: anywhere 给它断点 —— 必须用 anywhere 而不是
+          break-word，因为只有 anywhere 会同时把 min-content 宽度算进来，
+          缺了它 flex 仍然按"不可断行"的宽度分配。
+     坐标列本身保持 nowrap（拆行会难看），用 flex: 0 0 auto 固定住不被压缩。
+     复现/回归：node .workbuddy/tools/probe-narrow.js 390 */
+  .search-item > div:first-child { flex: 1 1 auto; min-width: 0; }
+  .search-item .place,
+  .search-item .region { overflow-wrap: anywhere; }
+  .search-item .coord { flex: 0 0 auto; }
+
   /* ==================== 状态提示条 ==================== */
   .status {
     margin-top: 12px;
@@ -211,6 +278,7 @@
   }
   .status.err { color: var(--danger); }
   .status.ok  { color: var(--ok); }
+  .status.warn { color: var(--warn); }   /* 部分可用：一边成了、一边没取到 */
 
   /* ---------- 输入框校验态 ---------- */
   .field-err {
@@ -287,6 +355,7 @@
     margin: 0 2px;
   }
   .tag.hit { color: #7dd3fc; border-color: rgba(56, 189, 248, .4); background: rgba(56, 189, 248, .12); }
+  .tag.miss { color: var(--danger); border-color: rgba(248, 113, 113, .4); background: rgba(248, 113, 113, .12); }
 
   /* ==================== KPI 数据卡片 ==================== */
   .kpi-grid {
@@ -308,6 +377,10 @@
   .kpi .k-value { font-size: 23px; font-weight: 700; letter-spacing: .3px; line-height: 1.28; }
   .kpi .k-value .unit { font-size: 12.5px; font-weight: 500; color: var(--muted); margin-left: 4px; }
   .kpi .k-note  { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+  /* 卡片底部小字：比 note 再弱一档，用来放"对照行 / 来源标注 / 口径说明"。
+     与 note 分开是因为这两类信息性质不同 —— note 讲这张卡的数字，
+     foot 讲"这个数字是怎么来的、和别处的口径差在哪"。 */
+  .kpi .k-foot  { font-size: 11px; color: var(--muted); opacity: .78; margin-top: 3px; line-height: 1.5; }
 
   .c-accent  { color: var(--accent); }
   .c-accent2 { color: var(--accent-2); }
@@ -365,6 +438,90 @@
     .advice-card { padding: 15px 16px; }
     .advice-card .adv-main { font-size: 22px; }
     .advice-card .adv-why  { font-size: 12px; }
+  }
+
+  /* ==================== 条件提示条（第 1 层与第 2 层之间） ====================
+     只有满足条件时才出现；一条都没有时脚本会把它设成 display:none，完全不占空间
+     （所以这里不给它固定 margin，免得留出一条空白缝）。横向排列、放不下就换行。 */
+  .alert-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 14px;
+  }
+
+  .alert-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.5;
+    border: 1px solid var(--border);
+    background: rgba(148, 163, 184, .10);
+    color: var(--text);
+  }
+  /* 颜色按严重程度分三档：危险（雨强）/ 需注意（阵风、能见度）/ 生活提示（体感） */
+  .alert-chip.a-danger { border-color: rgba(248, 113, 113, .42); background: rgba(248, 113, 113, .14); color: var(--danger); }
+  .alert-chip.a-warn   { border-color: rgba(251, 191, 36, .40);  background: rgba(251, 191, 36, .13);  color: var(--warn);   }
+  .alert-chip.a-info   { border-color: rgba(56, 189, 248, .40);  background: rgba(56, 189, 248, .12);  color: var(--accent); }
+
+  /* 被挤掉的条数压成的小尾巴：比胶囊弱一档，读起来像注脚而不是第四条提示 */
+  .alert-more { font-size: 11.5px; color: var(--muted); }
+
+  @media (max-width: 560px) {
+    .alert-chip { font-size: 12px; padding: 5px 10px; }
+  }
+
+  /* 提示条底部的统一免责小字（阶段三） */
+  .alert-disclaimer { font-size: 11px; color: var(--muted); opacity: .8; margin-left: 4px; }
+
+  /* 建议卡底部的统一免责小字（阶段三：涉及淋湿风险时出现） */
+  .advice-card .adv-foot { margin-top: 8px; font-size: 11px; color: var(--muted); opacity: .8; line-height: 1.6; }
+
+  /* ==================== 阶段三：综合评分 + 我的偏好（折叠区顶部） ==================== */
+  .score-body { display: flex; flex-direction: column; gap: 9px; }
+  .score-row, .score-total {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12.5px; color: var(--text);
+  }
+  .score-name { flex: 0 0 96px; color: var(--muted); min-width: 0; }
+  .score-bar {
+    flex: 1 1 auto; height: 10px; border-radius: 999px;
+    background: rgba(148, 163, 184, .12); overflow: hidden;
+  }
+  .score-fill { display: block; height: 100%; border-radius: 999px; transition: width .35s ease; }
+  .score-fill.c-accent2 { background: var(--accent-2); }
+  .score-fill.c-accent  { background: var(--accent); }
+  .score-fill.c-warn    { background: var(--warn); }
+  .score-fill.c-ok      { background: var(--ok); }
+  .score-fill.c-total   { background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+  .score-val { flex: 0 0 34px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .score-total { border-top: 1px solid var(--border); padding-top: 11px; margin-top: 3px; }
+  .score-total .score-bar { height: 13px; }
+  .score-total .score-name { font-weight: 700; color: var(--text); }
+  .score-total .score-val { font-size: 15px; }
+
+  .score-note { font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.6; }
+  .score-custom { font-size: 12px; color: var(--warn); margin-top: 4px; }
+  .score-missing { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+  .score-disclaimer { font-size: 11px; color: var(--muted); opacity: .78; margin-top: 6px; line-height: 1.6; }
+
+  .pref-body { display: flex; flex-direction: column; gap: 6px; }
+  .pref-item {
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+    padding: 8px 10px; border-radius: var(--radius-sm);
+  }
+  .pref-item:hover { background: rgba(56, 189, 248, .06); }
+  .pref-item input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; flex: 0 0 auto; }
+  .pref-label { font-size: 13.5px; font-weight: 600; }
+  .pref-hint { font-size: 11.5px; color: var(--muted); }
+
+  @media (max-width: 560px) {
+    .score-name { flex-basis: 84px; }
   }
 
   /* ==================== 图表容器 ==================== */
@@ -434,18 +591,6 @@
 
   footer a { color: var(--accent); text-decoration: none; }
 
-  .link-btn {
-    background: none;
-    border: none;
-    color: var(--accent-2);
-    font-size: 12px;
-    padding: 2px 4px;
-    text-decoration: underline;
-    text-underline-offset: 3px;
-    cursor: pointer;
-    font-weight: 500;
-  }
-
   /* 加载中旋转小图标 */
   .spinner {
     display: inline-block;
@@ -472,6 +617,72 @@
     .kpi { padding: 12px; }
     .kpi .k-value { font-size: 20px; }
     .card-title { font-size: 14.5px; }
+    /* 标题独占一行，缓存工具条换到下一行左对齐 */
+    .page-head .head-text { flex: 1 1 100%; }
+    .head-tools { padding-top: 0; }
+  }
+
+  /* ==================== 第 3 层：详细数据折叠区（阶段二新增） ====================
+     用原生 <details>：无需 JS 也能折叠，键盘可访问；
+     展开状态另存到 localStorage（rainPanel.ui.v1），刷新后保持。
+     注意：折叠时内部 canvas 宽度为 0，Chart.js 会在那儿画出变形的图，
+     所以图表统一改成"展开时才渲染"（见 renderCharts）。 */
+  .detail-fold { margin-top: 6px; }
+
+  .detail-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    list-style: none;                       /* 去掉 Chrome 默认三角，改用自绘箭头 */
+    padding: 14px 17px;
+    background: linear-gradient(180deg, var(--card) 0%, var(--card-2) 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    user-select: none;
+    transition: border-color .18s ease;
+  }
+  .detail-summary::-webkit-details-marker { display: none; }
+  .detail-summary:hover { border-color: rgba(56, 189, 248, 0.42); }
+  .detail-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* 展开时和下方内容连成一体，像"抽屉拉开" */
+  .detail-fold[open] > .detail-summary {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-bottom-color: transparent;
+  }
+
+  .df-arrow {
+    display: inline-block;
+    color: var(--accent);
+    font-size: 12px;
+    line-height: 1;
+    transition: transform .18s ease;
+  }
+  .detail-fold[open] .df-arrow { transform: rotate(90deg); }
+
+  .df-hint {
+    margin-left: auto;
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--muted);
+    text-align: right;
+  }
+
+  .detail-body { padding-top: 16px; }
+
+  /* 第 2 层：固定 6 张核心卡 —— 宽屏三列两行，窄屏两列三行 */
+  .kpi-grid.core-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (max-width: 880px) {
+    .kpi-grid.core-6 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 560px) {
+    .df-hint { display: none; }             /* 窄屏放不下两段文字，只留标题 */
   }
 </style>
 </head>
@@ -481,8 +692,22 @@
 
   <!-- ==================== 标题 ==================== -->
   <header class="page-head" data-page-node-id="CGyrKyhsmpkT7A0PmYO87w">
-    <h1 data-page-node-id="Lt3AXfiI4siiApoUy1diyQ"><span class="dot" data-page-node-id="MKgLjBChUAOi7xNbpB2NxW"></span>个人降雨可视化面板</h1>
-    <p data-page-node-id="qz77bn0BQLATW7PRapNdrk">多模型对比 + ECMWF 集合预报，看未来降水的量级、概率与不确定性。</p>
+    <div class="head-text">
+      <h1 data-page-node-id="Lt3AXfiI4siiApoUy1diyQ"><span class="dot" data-page-node-id="MKgLjBChUAOi7xNbpB2NxW"></span>个人降雨可视化面板</h1>
+      <p data-page-node-id="qz77bn0BQLATW7PRapNdrk">多模型对比 + ECMWF 集合预报，看未来降水的量级、概率与不确定性。</p>
+    </div>
+
+    <!-- 缓存工具：放在页首右上角，需要清缓存时不用翻到页脚 -->
+    <div class="head-tools" id="headTools">
+      <span id="cacheInfo" class="cache-pill" data-page-node-id="L4ql4dvU07SNMzTDkmGB6u">本地缓存 0 条</span>
+      <button id="clearCacheBtn" class="btn-tool" type="button" data-page-node-id="EcOcCOMXns2a3Ol1UOmB85"
+              title="清空浏览器本地保存的接口数据，下次查询会重新请求。同一坐标 10 分钟内会复用缓存，不再消耗接口额度。">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>
+        </svg>清空缓存
+      </button>
+    </div>
   </header>
 
   <!-- ==================== 地名搜索（地理编码接口） ==================== -->
@@ -579,8 +804,6 @@
     数据来源：<a href="https://open-meteo.com/" target="_blank" rel="noopener" data-page-node-id="tikG91PB7Ni9iqIoqS6reF">Open-Meteo</a>
     预报 / 集合 / 地理编码 API ｜ 降雨量单位：毫米（mm）｜ 时间基准：北京时间（Asia/Shanghai）<br  data-page-node-id="UiSECF5SmVUd77la7VW0cs"/>
     <span id="updateTime" data-page-node-id="1KTX7EnLWMbJI9lv71735o"></span>
-    <span id="cacheInfo" data-page-node-id="L4ql4dvU07SNMzTDkmGB6u"></span>
-    <button id="clearCacheBtn" class="link-btn" type="button" data-page-node-id="EcOcCOMXns2a3Ol1UOmB85">清空本地缓存</button>
   </footer>
 </div>
 
@@ -631,11 +854,558 @@ const WEEK_CN = ['周日', '周一', '周二', '周三', '周四', '周五', '�
 
 
 /* ==========================================================================
+   ★★★ 阈值 / 映射表 / 权重总表（阶段二新增）★★★
+   --------------------------------------------------------------------------
+   页面里凡是"多少算大、几级算严重"的判断，全部集中在这里，不允许再出现
+   新的裸字面量。每条都标注来源分类：
+
+     【国际标准】可直接引用的国际通用规范
+     【国家标准】中国现行国家标准
+     【经验值】  生活经验归纳出的档位，不是标准，允许带主观性
+     【自定义】  纯为本页面表达口径而定的规则（如显示精度、数据源策略）
+
+   改这里的任何一条，全页所有引用处一起生效 —— 这是本表存在的唯一理由。
+   ========================================================================== */
+
+/* -------------------- 【国际标准】WMO 4677 天气现象代码 --------------------
+   来源：WMO Manual on Codes（FM 12 SYNOP / 4677），Open-Meteo 的 weather_code
+   字段直接采用这套编号。这里只收录 Open-Meteo 会返回的代码。
+   wet: true 表示"这一小时在下（任何形式的）降水"，用于挑选"降雨时段的天气现象"。 */
+const WMO_WEATHER_CODE = {
+  0:  { text: '晴',            wet: false, cls: 'c-accent'  },
+  1:  { text: '晴间多云',      wet: false, cls: 'c-accent'  },
+  2:  { text: '多云',          wet: false, cls: 'c-accent2' },
+  3:  { text: '阴',            wet: false, cls: 'c-accent2' },
+  45: { text: '雾',            wet: false, cls: 'c-warn'    },
+  48: { text: '雾凇',          wet: false, cls: 'c-warn'    },
+  51: { text: '小毛毛雨',      wet: true,  cls: 'c-accent2' },
+  53: { text: '毛毛雨',        wet: true,  cls: 'c-accent2' },
+  55: { text: '浓毛毛雨',      wet: true,  cls: 'c-warn'    },
+  56: { text: '冻毛毛雨',      wet: true,  cls: 'c-warn'    },
+  57: { text: '强冻毛毛雨',    wet: true,  cls: 'c-danger'  },
+  61: { text: '小雨',          wet: true,  cls: 'c-accent2' },
+  63: { text: '中雨',          wet: true,  cls: 'c-warn'    },
+  65: { text: '大雨',          wet: true,  cls: 'c-danger'  },
+  66: { text: '冻雨',          wet: true,  cls: 'c-warn'    },
+  67: { text: '强冻雨',        wet: true,  cls: 'c-danger'  },
+  71: { text: '小雪',          wet: true,  cls: 'c-accent2' },
+  73: { text: '中雪',          wet: true,  cls: 'c-warn'    },
+  75: { text: '大雪',          wet: true,  cls: 'c-danger'  },
+  77: { text: '米雪',          wet: true,  cls: 'c-accent2' },
+  80: { text: '小阵雨',        wet: true,  cls: 'c-accent2' },
+  81: { text: '阵雨',          wet: true,  cls: 'c-warn'    },
+  82: { text: '强阵雨',        wet: true,  cls: 'c-danger'  },
+  85: { text: '小阵雪',        wet: true,  cls: 'c-accent2' },
+  86: { text: '大阵雪',        wet: true,  cls: 'c-danger'  },
+  95: { text: '雷阵雨',        wet: true,  cls: 'c-danger'  },
+  96: { text: '雷阵雨伴小冰雹', wet: true, cls: 'c-danger'  },
+  99: { text: '强雷暴伴冰雹',  wet: true,  cls: 'c-danger'  }
+};
+
+/* -------------------- 【国家标准】GB/T 28592-2012《降水量等级》 --------------------
+   这是 24 小时降水量口径的分级（标准里另有 12 小时口径，本页只用 24 小时）。
+   注意分界是"上界含不含"：标准写法为 0.1~9.9 小雨、10.0~24.9 中雨……
+   所以这里用"小于下一档下界"来判断，不会把 10.0 误判成小雨。 */
+const RAIN_GRADE_24H = [
+  { max: 0.1,      name: '无有效降水', cls: 'c-muted'   },
+  { max: 10,       name: '小雨',       cls: 'c-accent'  },
+  { max: 25,       name: '中雨',       cls: 'c-warn'    },
+  { max: 50,       name: '大雨',       cls: 'c-orange'  },
+  { max: 100,      name: '暴雨',       cls: 'c-danger'  },
+  { max: 250,      name: '大暴雨',     cls: 'c-danger'  },
+  { max: Infinity, name: '特大暴雨',   cls: 'c-danger'  }
+];
+
+/* -------------------- 【经验值】体感温度档位（℃） --------------------
+   判据是"体感温度"（apparent_temperature），不是气温 —— 同样的 5℃，
+   有风就是另一个体感。档位取常见的体感描述，不追求气象学严格性。 */
+const FEELS_LEVELS = [
+  { max: -20,      name: '极寒',   tip: '暴露皮肤很快冻伤，非必要不外出', cls: 'c-danger'  },
+  { max: -10,      name: '严寒',   tip: '需重装防护，注意手脚保暖',       cls: 'c-danger'  },
+  { max: 0,        name: '寒冷',   tip: '厚冬装，注意防冻',               cls: 'c-warn'    },
+  { max: 5,        name: '冷',     tip: '需要厚外套',                     cls: 'c-warn'    },
+  { max: 10,       name: '凉',     tip: '外套正合适',                     cls: 'c-accent2' },
+  { max: 18,       name: '舒适偏凉', tip: '薄外套即可',                   cls: 'c-accent'  },
+  { max: 26,       name: '舒适',   tip: '体感宜人',                       cls: 'c-ok'      },
+  { max: 30,       name: '偏热',   tip: '注意补水，避免长时间日晒',       cls: 'c-warn'    },
+  { max: 35,       name: '闷热',   tip: '减少户外活动',                   cls: 'c-orange'  },
+  { max: Infinity, name: '酷热',   tip: '避免长时间户外，防中暑',         cls: 'c-danger'  }
+];
+
+/* -------------------- 【经验值】阵风档位（km/h） --------------------
+   阵风（wind_gusts_10m）比平均风速更能反映"出门会不会被吹得难受"。
+   档位参照蒲福风级在 10 米高度的对应风速区间做了口语化处理。 */
+const GUST_LEVELS = [
+  { max: 30,       name: '和缓', tip: '对出行没有影响',       cls: 'c-ok'      },
+  { max: 50,       name: '风大', tip: '注意帽子与骑行安全',   cls: 'c-accent2' },
+  { max: 75,       name: '强风', tip: '注意高空坠物',         cls: 'c-warn'    },
+  { max: 90,       name: '大风', tip: '尽量避免户外活动',     cls: 'c-orange'  },
+  { max: Infinity, name: '暴风', tip: '有危险，请留在室内',   cls: 'c-danger'  }
+];
+
+/* -------------------- 【经验值】降雨体感档位（按小时雨强，mm/小时） --------------------
+   这是"体感体系"的核心尺子，回答"这雨下在身上是什么感觉"。
+
+   量纲是**每小时下多猛**（雨强），不是"多少小时里累计了多少毫米"（雨量）——
+   所以它和 RAIN_GRADE_24H（24 小时累计，国家标准）**不是同一把尺子**，
+   同一个天气下两者可能给出不同等级（比如每小时 0.3mm 连下 20 小时：
+   雨强只有"毛毛细雨"，累计却够"小雨"）。所以卡片上必须把口径差别写清楚，
+   见 CARD_RAIN_FEEL_SCOPE_NOTE。
+
+   分界包含下界：levelOf 用 `x < max` 判定，所以每条记录的 max 是它的上界、不含。
+   于是 0.5 落在"很小的雨"、2.5 落在"中雨"（用户指定的验收用例正是这两个值）。
+   档位名与描述由用户给定（2026-09-23 拍板），本表逐条照抄，不自行改写措辞。 */
+const RAIN_FEEL_LEVELS = [
+  { max: 0.1,      name: '无感',       tip: '几乎感觉不到',                       cls: 'c-muted'   },
+  { max: 0.5,      name: '毛毛细雨',   tip: '极轻，像雾里带水珠，短时间不用伞',   cls: 'c-ok'      },
+  { max: 1,        name: '很小的雨',   tip: '雨滴稀疏，走久了衣服发潮',           cls: 'c-accent'  },
+  { max: 2.5,      name: '小雨',       tip: '明显在下，不打伞几分钟就湿',         cls: 'c-accent'  },
+  { max: 8,        name: '中雨',       tip: '雨声清楚，地面积水洼，会弄湿鞋子',   cls: 'c-accent2' },
+  { max: 16,       name: '大雨',       tip: '雨滴砸得实，鞋几分钟湿透，裤腿也湿', cls: 'c-warn'    },
+  { max: 30,       name: '短时强降水', tip: '倾盆，路面出现水流，伞近乎无效',     cls: 'c-orange'  },
+  { max: 50,       name: '极端',       tip: '路边像小河，视野严重受阻',           cls: 'c-danger'  },
+  { max: Infinity, name: '极端',       tip: '城市瘫痪级，不要出门',               cls: 'c-danger'  }
+];
+
+/* -------------------- 【经验值】能见度档位（米） --------------------
+   判据是窗口内的**最小**能见度：最低的那一刻决定"看不清到什么程度"。
+   只有 GFS 提供这个要素（见 FIELD_POLICY.VISIBILITY_SOURCE），
+   取不到值时这条档位与提示条上的对应规则**一起消失**，
+   绝不能写成"能见度正常"（用户明确要求：字段缺失时当作这条不存在）。 */
+const VIS_LEVELS = [
+  { max: 500,      name: '浓雾',   tip: '能见度极低，行车危险',   cls: 'c-danger'  },
+  { max: 1000,     name: '有雾感', tip: '远处景物明显发白',       cls: 'c-orange'  },
+  { max: 5000,     name: '朦胧',   tip: '远景发灰，视野不够通透', cls: 'c-warn'    },
+  { max: Infinity, name: '通透',   tip: '视野清晰',               cls: 'c-ok'      }
+];
+
+/* -------------------- 【经验值】"强降雨"的小时门槛（mm/小时） --------------------
+   用户给定的 2.5，含义是"会明显影响出行"：站在这种雨里几分钟就湿透，需要打伞或改行程。
+
+   它**不是** HOUR_RAIN_MM（0.1）—— 两者量纲相同但用途完全不同：
+     HOUR_RAIN_MM  0.1 —— "这一小时算不算在下雨"（有没有雨）
+     HEAVY_HOUR_MM 2.5 —— "这一小时算不算强"（要不要专门提醒）
+   所以在常量表里分开命名，改一个不会顺手改掉另一个。 */
+const HEAVY_HOUR_MM = 2.5;
+
+/* -------------------- 【经验值】条件提示条的规则与阈值 --------------------
+   提示条夹在第 1 层（一句话建议）与第 2 层（6 张核心卡）之间，
+   只有满足条件才出现，一条都不满足时完全不占空间。
+
+   两条硬规则（用户指定）：
+     · 字段缺失 → 这条规则**不参与**，既不算满足也不算不满足。
+       能见度缺失时既不显示"能见度正常"，也不报错 —— 就当这条不存在。
+       实现手段：when() 里先 numOrNull()，拿不到值直接 false。
+     · 同时满足的条数超过 MAX 时，按 prio 取前几条，剩下的**不静默丢弃**，
+       压成一行"（还有 N 项，详见下方数据）"的小尾巴。
+
+   优先级顺序由用户指定：雨强 > 阵风 > 能见度 > 体感。
+   at 字段只是给 hover 提示与自查用的"人话阈值说明"，便于日后核对。 */
+const ALERT_THRESHOLD = {
+  HOUR_MM:      16,   // 小时雨强 > 16 mm/h → 短时强降水
+  GUST_KMH:     35,   // 阵风 > 35 km/h    → 伞可能被吹翻
+  VIS_KM:        2,   // 能见度 < 2 km     → 有雾感
+  FEELS_COLD_C:  5,   // 体感 < 5℃         → 注意保暖（用 24h 体感下限）
+  FEELS_HOT_C:  32,   // 体感 > 32℃        → 注意补水（用 24h 体感上限）
+  MAX:           3    // 最多同时显示几条
+};
+
+/* 体感那两条的取值口径：用 24 小时的**下限 / 上限**，不用平均值。
+   24 小时平均会漏掉"白天 20℃、夜里 -3℃"这种真正需要提醒的天气
+   —— 平均值 8.5℃ 看起来无事，人却在半夜冻着。用户给的措辞"体感仅 X℃ / 体感达 X℃"
+   本身也分别指向低端与高端。 */
+const ALERT_RULES = [
+  { id: 'rain', prio: 1, cls: 'a-danger', at: '小时雨强 > 16mm/h',
+    when: c => numOrNull(c.hourPeak) !== null && c.hourPeak > ALERT_THRESHOLD.HOUR_MM,
+    text: () => '短时强降水，路面可能积水' },
+
+  { id: 'gust', prio: 2, cls: 'a-warn', at: '阵风 > 35km/h',
+    when: c => numOrNull(c.gustPeak) !== null && c.gustPeak > ALERT_THRESHOLD.GUST_KMH,
+    text: c => `阵风 ${fmt(c.gustPeak, 1)} km/h，伞可能被吹翻` },
+
+  { id: 'vis', prio: 3, cls: 'a-warn', at: '能见度 < 2km',
+    when: c => numOrNull(c.visMin) !== null && c.visMin < ALERT_THRESHOLD.VIS_KM * 1000,
+    text: c => `有雾感，能见度仅 ${fmt(c.visMin / 1000, 1)} km` },
+
+  { id: 'feels-cold', prio: 4, cls: 'a-info', at: '体感下限 < 5℃',
+    when: c => numOrNull(c.feelsMin) !== null && c.feelsMin < ALERT_THRESHOLD.FEELS_COLD_C,
+    text: c => `体感仅 ${fmtTemp(c.feelsMin)}℃，注意保暖` },
+
+  { id: 'feels-hot', prio: 4, cls: 'a-info', at: '体感上限 > 32℃',
+    when: c => numOrNull(c.feelsMax) !== null && c.feelsMax > ALERT_THRESHOLD.FEELS_HOT_C,
+    text: c => `体感达 ${fmtTemp(c.feelsMax)}℃，注意补水` }
+];
+
+/* -------------------- 【自定义】"官方天气现象"卡认定的现象代码 --------------------
+   这张卡回答"未来 24 小时有没有天气现象"。
+
+   用户给定的映射表里，0 / 1 / 2 / 3（晴 / 晴间多云 / 多云 / 阴）**不在**现象之列 ——
+   取到的代码不在这张表里时，卡片写「未来 24h 无降水现象」，不许写成"晴"。
+   而 45 / 48（雾 / 雾凇）虽然不是降水（wmoInfo().wet === false），
+   却是用户明确要求要报出来的现象，所以在下面单独列出。
+
+   判定：wmoInfo(code).wet === true，或代码在本表内 → 是现象。 */
+const PHENOMENON_EXTRA_CODES = [45, 48];
+
+/* 这张卡底部的来源标注（用户要求：副标题注明【国际标准】WMO 天气代码） */
+const WMO_CODE_SOURCE_TAG = '【国际标准】WMO 天气代码';
+
+/* 降雨体感卡底部的小字（用户要求：注明两把尺子的口径差别） */
+const CARD_RAIN_FEEL_SCOPE_NOTE =
+  '【经验值】体感档基于小时雨强，国标等级基于 24 小时累计，两者口径不同';
+
+/* =========================================================================
+   阶段三·自造模型（2026-09-23）：风雨耦合 + 综合评分 + 偏好设置
+   -------------------------------------------------------------------------
+   这一整块都是"自造"的：风力系数、评分分档、评分权重、偏好放大系数，
+   全部是【自定义】经验值，没有任何国家 / 国际标准背书，也没有物理公式依据。
+   页面上凡用到这些数字的地方，底部都要挂 DISCLAIMER_NOTE 那句统一免责声明。
+   ========================================================================= */
+
+/* -------------------- 【自定义】风雨耦合：合成风力与风力系数 --------------------
+   为什么"风"要让"雨"更难受：同样的雨，风越大，雨滴越斜、越容易打湿人，
+   伞也越撑不住。所以定义「有效雨强 = 小时雨强 × (1 + 风力系数)」。
+
+   合成风力 = SPEED_W × 风速 + GUST_W × 阵风（两者加权）。
+   权重是经验近似：平均风代表"持续吹"，阵风代表"突然一股劲"，
+   各取 0.6 / 0.4 是拍脑袋定的，没有物理公式依据（用户允许自定，但必须写明）。 */
+const WIND_COMBINE = { SPEED_W: 0.6, GUST_W: 0.4 };
+
+/* 风力系数：合成风力 → 系数，分段线性（超过 30 按最后一段斜率继续外推，不封顶）。
+   量级参照用户给定：0→0，0~10→0~0.2，10~20→0.2~0.5，20~30→0.5~1.0，>30→1.0 以上。 */
+const WIND_COEFF_STOPS = [
+  { x: 0,  y: 0.0 },
+  { x: 10, y: 0.2 },
+  { x: 20, y: 0.5 },
+  { x: 30, y: 1.0 }
+];
+
+/* -------------------- 【自定义】综合评分：四个维度的分档与总分权重 --------------------
+   分数 0~100，越高越难受。每个维度都是"分段线性"：相邻两个 (x,y) 之间直线插值，
+   首尾之外夹到 [0,100]。四张表的 x 是"观测值"，y 是"不适分"。
+
+   风力影响有个特殊规则（用户指定、写在备注栏）：**有雨时风力权重 ×1.5** ——
+   同样的风，下着雨时更难受（雨横着打、伞更难撑），所以自造模型里给它放大。 */
+
+/* 降雨不适：按**有效雨强**（已含风雨耦合）分段，断点就是体感档的上界（"按体感档分段线性"）。
+   0 → 0，16 及以上 → 100（大雨档）。 */
+const RAIN_SCORE_STOPS = [
+  { x: 0,    y: 0   },
+  { x: 0.1,  y: 5   },
+  { x: 0.5,  y: 15  },
+  { x: 1,    y: 30  },
+  { x: 2.5,  y: 50  },
+  { x: 8,    y: 75  },
+  { x: 16,   y: 100 }
+];
+
+/* 风力影响：用 24h 合成风力峰值。0 → 0，40 及以上 → 100。 */
+const WIND_SCORE_STOPS = [
+  { x: 0,  y: 0   },
+  { x: 10, y: 25  },
+  { x: 20, y: 50  },
+  { x: 30, y: 75  },
+  { x: 40, y: 100 }
+];
+
+/* 温度不适：20~26℃ 舒适（0 分），偏离越远越高，<0℃ 或 >35℃ 封顶 100。
+   用 24h 的**最低温**算冷端、**最高温**算热端，取两者较大者 ——
+   与提示条同一思路：用平均会漏掉"白天 30℃、夜里 -3℃"这种真正难受的天。 */
+const TEMP_SCORE_STOPS = [
+  { x: 0,  y: 100 },
+  { x: 20, y: 0   },
+  { x: 26, y: 0   },
+  { x: 35, y: 100 }
+];
+
+/* 能见度不适：用 24h 最低能见度（米）。>10km → 0，<500m → 100。 */
+const VIS_SCORE_STOPS = [
+  { x: 500,   y: 100 },
+  { x: 1000,  y: 75  },
+  { x: 5000,  y: 35  },
+  { x: 10000, y: 0   }
+];
+
+/* 总分权重（百分比，四项之和 = 100%）。加权求和后封顶 100。 */
+const SCORE_WEIGHTS = { RAIN: 0.40, WIND: 0.25, TEMP: 0.25, VIS: 0.10 };
+
+/* 有雨时风力权重的放大倍数（自造模型规则，用户写在评分表"备注"栏） */
+const WIND_RAIN_BOOST = 1.5;
+
+/* 总分下方必须写的一句（用户指定原文） */
+const SCORE_CUSTOM_NOTE = '⚠️ 权重为自定义设置，非国家标准，仅供参考';
+
+/* -------------------- 【自定义】淋湿风险档位（按有效雨强） --------------------
+   综合建议副句里的"淋湿风险"用这四档；勾了「有伞」就整体下调一档（最低档不再降）。 */
+const WET_RISK_LEVELS = [
+  { max: 2.5,      text: '有伞基本不会湿' },
+  { max: 8,        text: '鞋会湿，建议防水鞋' },
+  { max: 16,       text: '裤子也会湿' },
+  { max: Infinity, text: '伞基本挡不住，尽量别出门' }
+];
+
+/* -------------------- 【自定义】偏好设置 --------------------
+   三个勾选框，状态存 localStorage（PREF_STORE_KEY）。
+     · 有伞   → 淋湿风险文案下调一档
+     · 会骑车 → 风力影响权重 ×1.5，且阵风 > PREF_BIKE_GUST_KMH 时给提示
+     · 怕冷   → 温度不适权重 ×1.5
+   放大系数 PREF_BOOST 也是经验值。 */
+const PREF_BOOST = { WIND: 1.5, TEMP: 1.5 };
+const PREF_BIKE_GUST_KMH = 30;   // 会骑车时，阵风超过这个值才提醒（低于"伞被吹翻"的 35）
+const PREF_STORE_KEY = 'rainPanel.prefs.v1';
+const PREF_DEFS = [
+  { key: 'umbrella', label: '我有伞',          hint: '淋湿风险文案下调一档' },
+  { key: 'bike',     label: '我会骑车 / 电动车', hint: '风力影响权重 ×1.5，阵风大时提醒' },
+  { key: 'cold',     label: '我怕冷',          hint: '温度不适权重 ×1.5' }
+];
+
+/* 统一免责声明：所有涉及体感 / 分数 / 淋湿风险的卡片与提示条底部都挂这句（用户指定原文） */
+const DISCLAIMER_NOTE =
+  '体感与评分基于自定义映射规则与权重，非国家标准，因人而异，仅供参考。';
+
+/* -------------------- 【自定义】显示精度（消除虚假精确） --------------------
+   预报本身没有到 0.1 毫米的把握，写成 "12.37 毫米" 是在编造精度。
+   规则（由用户指定）：
+     · 累计雨量 → 取整到 1 毫米（并且能说区间时优先说区间）
+     · 集合分位数 → 取整到 1 毫米
+     · 概率    → 取整到 5%
+     · 相对分歧 → 取整到 10%
+     · 温度    → 保留 1 位小数
+     · 小时雨强 → 保留 1 位小数（它是"每小时多猛"，不是累计量）
+   PRECISION.HOUR_MM / TEMP_C 是"保留几位小数"，其余是"取整步长"。 */
+const PRECISION = {
+  ACCUM_MM:    1,    // 累计雨量：步长 1 毫米
+  QUANT_MM:    1,    // 集合分位数：步长 1 毫米
+  PROB_PCT:    5,    // 概率：步长 5%
+  RELDIV_PCT: 10,    // 模型间相对分歧：步长 10%
+  HOUR_MM:     1,    // 小时雨强：小数位
+  TEMP_C:      1     // 温度：小数位
+};
+
+/* -------------------- 【自定义】要素数据源策略 --------------------
+   探测结果（2026-09-23 实测，详见 .workbuddy/memory 当日记录）：
+     · weather_code          三个模型都有真值
+     · apparent_temperature  三个模型都有真值
+     · wind_gusts_10m        三个模型都有真值
+     · rain / showers        三个模型都有真值，但 ECMWF 不提供拆分（阵雨列恒为 0，总量计入雨）
+     · visibility            键都在，但只有 GFS 有真值，ECMWF / ICON 全为 null
+   策略如下： */
+const FIELD_POLICY = {
+  /* weather_code 是"类别"编号，两个模型求平均会得出毫无意义的数
+     （51 和 82 平均成 66.5，查表成了"冻雨"）。所以不平均，指定单一来源，
+     其余模型的取值只在第 3 层明细区逐模型列出。 */
+  WEATHER_CODE_SOURCE: 'ecmwf_ifs025',
+
+  /* 能见度只有 GFS 有值。显示策略：有值就显示并注明"仅 GFS 提供"，
+     不做跨模型平均（会掩盖"另两家根本没这个要素"这个事实）。 */
+  VISIBILITY_SOURCE: 'gfs_seamless',
+
+  /* 标注"不提供雨 / 阵雨拆分"的模型。
+     实测（2026-09-23，三个模型同时请求 precipitation,rain,showers）：
+       ecmwf_ifs025 → 接口确实返回 showers 字段，但**恒为 0**，且 rain 逐点等于 precipitation
+                      → 即"总量全部计入雨，阵雨永远是 0"，而不是"两列数值相同"。
+       gfs / icon   → showers 有非零值，rain + showers = precipitation。
+     所以下面的文案写"阵雨列恒为 0 / 总量计入雨"，不能写"两列相同"，
+     否则会和卡片里真实的「<1 / 0 mm」自相矛盾（本项目约定：页面不撒谎）。 */
+  NO_SHOWER_SPLIT: ['ecmwf_ifs025'],
+
+  /* 「官方天气现象」卡底部必须写明的口径提示（用户指定）。
+     这张卡的现象代码与"哪一小时最湿"全部来自上面 WEATHER_CODE_SOURCE 这一个模型，
+     而页面别处的小时雨强（降雨体感卡、主要降雨时段）是多模型平均 ——
+     两者可能给出不同的峰值时刻与量级，不写明就会被读成"页面算错了"。
+     句中的模型名由渲染层用 modelName() 填进去，
+     免得日后改了来源模型、文案却还写着 ECMWF。 */
+  WEATHER_CODE_SCOPE_TPL: '天气现象取自 {model} 单模型，可能与多模型平均的量级判断不一致'
+};
+
+/* 卡片⑤（模型一致性）的口径提示。
+   这张卡只统计多模型接口的 3 个确定性模型，而「降雨概率」「雨量区间」两张卡来自集合接口，
+   两者**口径不同源**，实测能差很多（确定性模式偏干、集合成员偏湿）：
+   2026-09-23 22:03 兰州，三个模型 48h 累计 0.20 / 0.00 / 0.00 mm（都不足 0.5mm），
+   而集合 51 个成员的 P50 = 1.1mm、43/51 个成员 > 0.5mm。已确认两个接口的窗口起点对齐，
+   是真实的模式分歧，不是页面算错。但两组数字并排显示时会被读成"自相矛盾"，
+   所以在卡片上直接写明口径 —— 宁可多一句话，也不让人怀疑数字。（本项目约定：页面不撒谎）
+   复现：node .workbuddy/tools/probe-apis.js */
+const CARD5_SCOPE_NOTE = '本卡只统计 3 个确定性模型，与概率 / 区间的集合口径不同源';
+
+/* 第 2 层核心卡的固定张数（协议：6 张，一张不多）。
+   骨架屏与正式渲染都引用它 —— 改这一处，两边一起改，不会出现"骨架 6 张、真卡 10 张"。 */
+const CORE_CARD_COUNT = 6;
+
+/* 第 3 层折叠区的展开状态存这个键，刷新后保持 */
+const UI_STORE_KEY = 'rainPanel.ui.v1';
+
+/* 上面几张映射表的查表函数 —— 页面上所有分级判断都从这里出去 */
+
+/** 按 max 升序的档位表：返回第一条满足 x < max 的记录；x 无效 → null（调用方显示「—」） */
+function levelOf(table, x) {
+  const n = numOrNull(x);
+  if (n === null) return null;
+  for (let i = 0; i < table.length; i++) {
+    if (n < table[i].max) return table[i];
+  }
+  return table[table.length - 1];
+}
+
+/** WMO 天气现象代码 → { text, wet, cls }；未知代码不假装认识，如实写出来 */
+function wmoInfo(code) {
+  const n = numOrNull(code);
+  if (n === null) return null;
+  const c = Math.round(n);
+  return WMO_WEATHER_CODE[c] ||
+    { text: '未收录代码 ' + c, wet: false, cls: 'c-muted' };
+}
+
+function rainGrade24h(mm) { return levelOf(RAIN_GRADE_24H, mm); }
+function feelsLevel(t)    { return levelOf(FEELS_LEVELS, t); }
+function gustLevel(v)     { return levelOf(GUST_LEVELS, v); }
+
+/* 阶段二·体感体系新增的两张尺子（表在文件上方，这里只是取表函数） */
+function rainFeelLevel(mmh) { return levelOf(RAIN_FEEL_LEVELS, mmh); }
+function visLevel(m)        { return levelOf(VIS_LEVELS, m); }
+
+/** 某个 WMO 代码在这张卡里算不算"天气现象"（见 PHENOMENON_EXTRA_CODES 的说明） */
+function isPhenomenon(code) {
+  const n = numOrNull(code);
+  if (n === null) return false;
+  const c = Math.round(n);
+  const info = wmoInfo(c);
+  return !!((info && info.wet) || PHENOMENON_EXTRA_CODES.indexOf(c) >= 0);
+}
+
+/* =========================================================================
+   阶段三·自造模型：分段线性插值 / 风力系数 / 淋湿风险 / 偏好读写 / 综合评分
+   ========================================================================= */
+
+/** 分段线性插值：stops 按 x 升序；x 在首尾之外按首尾段斜率外推。
+    供风力系数（>30 要"1.0 以上"继续涨）用；评分要夹在 0~100，走 scoreLinear。 */
+function piecewise(stops, x) {
+  const n = numOrNull(x);
+  if (n === null) return null;
+  if (n <= stops[0].x) return stops[0].y;
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (n <= stops[i + 1].x) {
+      const a = stops[i], b = stops[i + 1];
+      return a.y + (b.y - a.y) * (n - a.x) / (b.x - a.x);
+    }
+  }
+  const a = stops[stops.length - 2], b = stops[stops.length - 1];
+  return b.y + (b.y - a.y) / (b.x - a.x) * (n - b.x);
+}
+
+/** 评分用：分段线性 + 夹到 [0,100]（评分只在 0~100 里取值，不外推） */
+function scoreLinear(stops, x) {
+  const y = piecewise(stops, x);
+  if (y === null) return null;
+  return Math.min(100, Math.max(0, y));
+}
+
+/** 合成风力：风速 × 0.6 + 阵风 × 0.4（经验近似，无物理公式依据） */
+function windCombine(speed, gust) {
+  const s = numOrNull(speed), g = numOrNull(gust);
+  if (s === null && g === null) return null;
+  return (s === null ? 0 : s) * WIND_COMBINE.SPEED_W +
+         (g === null ? 0 : g) * WIND_COMBINE.GUST_W;
+}
+
+/** 风力系数：合成风力 → 系数（>30 继续外推，不封顶；负值夹到 0） */
+function windCoeff(w) {
+  const n = numOrNull(w);
+  if (n === null) return null;
+  return Math.max(0, piecewise(WIND_COEFF_STOPS, n));
+}
+
+/** 有效雨强 = 小时雨强 × (1 + 风力系数)；风数据缺失时系数按 0（退化为原始雨强） */
+function effectiveRainIntensity(rain, windIdx) {
+  const r = numOrNull(rain);
+  if (r === null) return null;
+  const c = windCoeff(windIdx);
+  return r * (1 + (c === null ? 0 : c));
+}
+
+/** 淋湿风险文案：按有效雨强取档；勾了「有伞」就整体下调一档（最低档不再降） */
+function wetRiskText(effRain, prefs) {
+  const n = numOrNull(effRain);
+  if (n === null) return null;
+  let idx = 0;
+  for (let i = 0; i < WET_RISK_LEVELS.length; i++) {
+    if (n < WET_RISK_LEVELS[i].max) { idx = i; break; }
+  }
+  if (prefs && prefs.umbrella && idx > 0) idx -= 1;
+  return WET_RISK_LEVELS[idx].text;
+}
+
+/* ---------------- 偏好读写（localStorage） ---------------- */
+function loadPrefs() {
+  try {
+    const o = JSON.parse(localStorage.getItem(PREF_STORE_KEY) || 'null');
+    if (o && typeof o === 'object') {
+      const p = {};
+      PREF_DEFS.forEach(d => { p[d.key] = !!o[d.key]; });
+      return p;
+    }
+  } catch (e) { /* 数据损坏当没有 */ }
+  const d = {};
+  PREF_DEFS.forEach(x => { d[x.key] = false; });
+  return d;
+}
+function savePrefs(patch) {
+  try {
+    localStorage.setItem(PREF_STORE_KEY, JSON.stringify(Object.assign(loadPrefs(), patch)));
+  } catch (e) {}
+}
+
+/* ---------------- 综合评分（四个分项 + 总分） ----------------
+   分项分 = scoreLinear(各自的 STOP 表, 观测值)；缺数据 → null（显示「—」，绝不用 0）。
+   总分 = Σ(分项 × 权重)，加权求和后封顶 100。权重有两处放大（都写在常量区）：
+     · 有雨时风力权重 ×1.5（WIND_RAIN_BOOST，自造模型规则）
+     · 会骑车 → 风 ×1.5、怕冷 → 温度 ×1.5（PREF_BOOST，偏好）
+   缺数据的维度不参与求和（贡献按 0 计），并记进 missing，渲染层写明"未计入"。 */
+function computeScores(comfort, prefs) {
+  const c = comfort || {};
+  const p = prefs || {};
+
+  const rain = scoreLinear(RAIN_SCORE_STOPS, c.effRainPeak);
+  const wind = scoreLinear(WIND_SCORE_STOPS, c.windPeak);
+  const temp = (c.tempMin === null && c.tempMax === null) ? null
+    : Math.max(scoreLinear(TEMP_SCORE_STOPS, c.tempMin),
+               scoreLinear(TEMP_SCORE_STOPS, c.tempMax));
+  const vis  = scoreLinear(VIS_SCORE_STOPS, c.visMin);
+
+  const hasRain = c.effRainPeak !== null && c.effRainPeak > 0;
+  const wWind = SCORE_WEIGHTS.WIND
+    * (hasRain ? WIND_RAIN_BOOST : 1)        // 有雨时风权重 ×1.5（自造模型规则）
+    * (p.bike ? PREF_BOOST.WIND : 1);        // 会骑车再 ×1.5（偏好）
+  const wTemp = SCORE_WEIGHTS.TEMP * (p.cold ? PREF_BOOST.TEMP : 1);
+
+  let total = 0;
+  const missing = [];
+  if (rain !== null) total += rain * SCORE_WEIGHTS.RAIN;  else missing.push('降雨');
+  if (wind !== null) total += wind * wWind;               else missing.push('风力');
+  if (temp !== null) total += temp * wTemp;               else missing.push('温度');
+  if (vis  !== null) total += vis  * SCORE_WEIGHTS.VIS;   else missing.push('能见度');
+  const allMissing = rain === null && wind === null && temp === null && vis === null;
+
+  return {
+    rain, wind, temp, vis,
+    total: allMissing ? null : Math.min(100, total),
+    hasRain,
+    missing,
+    boosted: !!(p.bike || p.cold)
+  };
+}
+
+
+/* ==========================================================================
    ★★★【缓存模块】START ★★★
    作用：同一 URL 在 10 分钟内不重复请求，避免开发时反复刷新白白消耗 API 额度。
    缓存存在 localStorage（键 rainPanel.cache.v1），刷新页面依然有效。
+   每条记录形如 { t: 写入时刻, d: 接口原始数据 }；
+   t 除了判断过期，还用来在页脚如实写出「数据时间」—— 命中缓存时数据可能是
+   几分钟前取回的，不能当成"刚刚"。
    需要"删除缓存"时：把 START 到 END 之间整段删掉，并去掉 fetchJSON 里的
-   cacheGet / cachePut 调用，即恢复"每次查询都实时请求"。
+   cacheGet / cachePut 调用（连带那行 dataAt，改用 Date.now()），
+   即恢复"每次查询都实时请求"。
    ========================================================================== */
 const CACHE_STORE_KEY = 'rainPanel.cache.v1';
 const CACHE_TTL       = 10 * 60 * 1000;  // 缓存有效期：10 分钟
@@ -659,23 +1429,31 @@ function writeCacheStore(store) {
   }
 }
 
-/** 取缓存：命中且未过期才返回数据，否则返回 null */
+/**
+ * 取缓存：命中且未过期才返回 { d, t }，否则返回 null。
+ *   d = 接口原始数据；t = 这条数据从接口取回的时刻（也用于页脚「数据时间」）
+ */
 function cacheGet(url) {
   const store = readCacheStore();
   const item  = store[url];
   if (!item) return null;
-  if (Date.now() - item.t > CACHE_TTL) {   // 已过期，顺手删掉
-    delete store[url];
+  const t = Number(item.t);
+  // t 缺失 / 不是数字的条目无法判断新鲜度，只能当不可用：
+  // 否则 Date.now() - undefined 得到 NaN，NaN > TTL 为 false，它会变成"永不过期"，
+  // 而且页脚的「数据时间」也无从写起。
+  if (!Number.isFinite(t) || Date.now() - t > CACHE_TTL) {
+    delete store[url];            // 已过期 / 无法判定，顺手删掉
     writeCacheStore(store);
     return null;
   }
-  return item.d;
+  return { d: item.d, t };
 }
 
-/** 存缓存：同时做过期清理 + 条目数裁剪（保留最新的若干条） */
+/** 存缓存：同时做过期清理 + 条目数裁剪（保留最新的若干条）；返回这条记录的写入时刻 */
 function cachePut(url, data) {
   const store = readCacheStore();
-  store[url] = { t: Date.now(), d: data };
+  const t = Date.now();
+  store[url] = { t, d: data };
 
   const now = Date.now();
   Object.keys(store).forEach(k => { if (now - store[k].t > CACHE_TTL) delete store[k]; });
@@ -688,14 +1466,15 @@ function cachePut(url, data) {
         .forEach(k => delete store[k]);
   }
   writeCacheStore(store);
+  return t;
 }
 
-/** 清空缓存（页脚「清空本地缓存」按钮会调用） */
+/** 清空缓存（页首工具条的「清空缓存」按钮会调用） */
 function clearApiCache() {
   try { localStorage.removeItem(CACHE_STORE_KEY); } catch (e) { /* 忽略 */ }
 }
 
-/** 当前缓存里有多少条仍在有效期内的记录（用于页脚展示） */
+/** 当前缓存里有多少条仍在有效期内的记录（用于页首的缓存状态） */
 function cacheCount() {
   const store = readCacheStore();
   const now = Date.now();
@@ -860,6 +1639,11 @@ const clearCacheBtn   = document.getElementById('clearCacheBtn');
 /* 图表实例引用（重查前必须 destroy，否则同一 canvas 复用会叠加图层） */
 const charts = { overview: null, model: null, ensemble: null };
 
+/* 第 3 层折叠区关着的时候，里面的图表容器宽度是 0，Chart.js 会画出变形的图。
+   所以折叠状态下先"欠着"（只记一个标记），展开时再补画 —— 见 ensureDetailFold 的监听。
+   这个标记同时覆盖"切换时间范围时折叠区恰好是关的"这种情况。 */
+let chartsPending = false;
+
 
 /* =======================================================================
    一、通用工具函数
@@ -899,10 +1683,28 @@ function sum(arr) {
 }
 
 /** 数组最大值 / 最小值 */
-function maxOf(arr) { return (arr || []).reduce((a, b) => Math.max(a, Number(b) || 0), 0); }
+/** 过滤出真正可参与数值比较的元素（null / undefined / NaN 一律丢弃） */
+function validNums(arr) {
+  return (arr || [])
+    .filter(x => x !== null && x !== undefined && !Number.isNaN(Number(x)))
+    .map(Number);
+}
+
+/**
+ * 数组最大值。
+ * ⚠ 不要用 0 当 reduce 的种子：那样在全为负数的数组上会永远返回 0
+ * （冬天 -10℃ ~ -2℃ 会算成 -10℃ ~ 0℃）。空数组返回 null，由调用方显示成「—」——
+ * 在温度这类可正可负的场景里，0 是"看起来合理但错误"的值。
+ */
+function maxOf(arr) {
+  const v = validNums(arr);
+  return v.length ? Math.max.apply(null, v) : null;
+}
+
+/** 数组最小值。语义同 maxOf：空数组 / 无有效值一律返回 null，不用 0 兜底 */
 function minOf(arr) {
-  const v = (arr || []).filter(x => x !== null && x !== undefined && !Number.isNaN(Number(x)));
-  return v.length ? Math.min.apply(null, v.map(Number)) : 0;
+  const v = validNums(arr);
+  return v.length ? Math.min.apply(null, v) : null;
 }
 
 /** 分位数（线性插值），传入已升序排列的数组 */
@@ -975,12 +1777,19 @@ function loadCoords() {
    三、三个接口的 URL 构造
    ======================================================================= */
 
-/** 1) 预报（多模型）：一次拿到 3 个模型的 5 个要素，字段带模型后缀 */
+/** 1) 预报（多模型）：一次拿到 3 个模型的若干要素，字段带模型后缀 */
 function urlForecast(lat, lon) {
   const p = new URLSearchParams({
     latitude:      lat,
     longitude:     lon,
-    hourly:        'precipitation_probability,precipitation,temperature_2m,cloud_cover,wind_speed_10m',
+    /* 【阶段一·第 1 步】在原有的 5 个要素之后追加了 6 个探测字段：
+       weather_code / apparent_temperature / wind_gusts_10m /
+       visibility / rain / showers。
+       本步**只加请求、不写任何解析代码**，目的是先确认这些字段
+       在多模型（ecmwf_ifs025,gfs_seamless,icon_seamless）下到底哪些真实存在、
+       哪些被接口忽略。已确认结果见下面的字段对照表，确认后再进入第 2 步。 */
+    hourly:        'precipitation_probability,precipitation,temperature_2m,cloud_cover,wind_speed_10m,'
+                 + 'weather_code,apparent_temperature,wind_gusts_10m,visibility,rain,showers',
     models:        MODELS.join(','),
     timezone:      TZ,
     forecast_days: 3
@@ -1013,7 +1822,10 @@ function urlGeocode(keyword) {
 
 /**
  * 请求 JSON，优先走本地缓存（10 分钟内不重复请求）。
- * 返回 { data, fromCache } —— fromCache 用来在状态栏提示"命中缓存"。
+ * 返回 { data, fromCache, dataAt } ——
+ *   fromCache：是否命中缓存，用来在状态栏打「·缓存」标签；
+ *   dataAt：**这份数据从接口取回的时刻**。命中缓存时就是当初写进缓存的时刻，
+ *           可能是几分钟前 —— 页脚据此如实写「数据时间」，而不是一律写"现在"。
  *
  * 失败时抛出带 code 的错误，方便上层翻译成人话：
  *   'timeout' | 'http_4xx' | 'http_5xx' | 'bad_json' | 'api_error'
@@ -1031,7 +1843,7 @@ async function fetchJSON(url, useCache = true) {
   // —— 读缓存（删除缓存功能时，去掉这一段）——
   if (useCache) {
     const hit = cacheGet(url);
-    if (hit) return { data: hit, fromCache: true };
+    if (hit) return { data: hit.d, fromCache: true, dataAt: hit.t };
   }
 
   // 用 AbortController 兜住"请求挂着不返回"的情况，否则页面会一直停在加载态
@@ -1067,9 +1879,10 @@ async function fetchJSON(url, useCache = true) {
   if (data && data.error) throw apiError('api_error', data.reason || '接口返回错误');
 
   // —— 写缓存（删除缓存功能时，去掉这一段）——
-  if (useCache) cachePut(url, data);
+  // 缓存里记的写入时刻就是这份数据的"取回时刻"，直接拿它当 dataAt，两边不会差几毫秒
+  const dataAt = useCache ? cachePut(url, data) : Date.now();
 
-  return { data, fromCache: false };
+  return { data, fromCache: false, dataAt };
 }
 
 
@@ -1344,6 +2157,10 @@ function setStatusError(err) {
     '<div class="err-head"><span class="err-icon">⚠️</span>' +
       '<span class="err-reason">' + escapeHtml(info.reason) + '</span></div>' +
     '<div class="err-detail">' + escapeHtml(info.detail) + '</div>' +
+    (err && err.__partialOk
+      ? '<div class="err-detail">' + escapeHtml(err.__partialOk) +
+        '接口这次是通的，只有多模型预报没取到 —— 数据源是分开的，点「重试」通常就能恢复。</div>'
+      : '') +
     (retryCount > 0 ? '<div class="err-detail">已重试 ' + retryCount + ' 次仍未成功</div>' : '') +
     '<div class="err-actions">' +
       '<button type="button" class="btn-retry" id="retryBtn">重试</button>' +
@@ -1382,20 +2199,32 @@ async function runQuery(opts) {
   // 2) 进入加载态：顶部进度条 + KPI 骨架屏 + 图表骨架占位
   ensureRangeBar();            // 防御：万一被编辑器重新序列化抹掉了，这里补回来
   ensureAdviceCard();          // 同上：综合建议卡也由脚本保证存在
+  ensureAlertBar();            // 同上：条件提示条也由脚本保证存在（渲染时按条件显隐）
   setLoading(true, '正在并行请求多模型预报与集合预报接口…');
 
   try {
-    // 3) 两个接口并行请求
-    const [fcRes, enRes] = await Promise.all([
+    // 3) 两个接口并行请求。
+    //    用 allSettled 而不是 all：两个接口在**两个不同的域名**上
+    //    （api.open-meteo.com / ensemble-api.open-meteo.com），一边抽风不该把整页拖下水。
+    //    集合预报缺失时，KPI 的核心数字、不确定性卡片、结论、图 1 / 图 2 全都照常算得出来。
+    const settled = (await Promise.allSettled([
       fetchJSON(urlForecast(lat, lon)),
       fetchJSON(urlEnsemble(lat, lon))
-    ]);
+    ])).map((r, i) => settleOf(r, API_SPECS[i]));
+
+    const fc = settled[0];   // 多模型预报：主数据源（必需）
+    const en = settled[1];   // 集合预报：可选数据源（缺了只是少几张卡、少一张图）
+
+    // 主数据源挂了就真的没有可算的东西：仍然按"整体失败"处理走错误面板，
+    // 但把"另一半其实是通的"一并带上 —— 免得用户以为是整个网络断了而白等。
+    if (!fc.ok) throw withPartial(fc.error, en.ok ? en.label : null);
 
     // 4) 坐标写入 localStorage，下次打开自动填入并自动查询
     saveCoords(lat, lon, window.__pickedPlace || '');
 
     // 5) 整理成统一上下文，再交给各渲染函数
-    const ctx = buildContext(fcRes.data, enRes.data);
+    //    集合没取到 → 传 null，各渲染函数按"数据不可用"降级（不假装成 0，也不清空页面）
+    const ctx = buildContext(fc.data, en.ok ? en.data : null);
     lastCtx = ctx;               // 记下来：切换时间范围时直接用它重绘，不再请求接口、不再消耗配额
 
     renderKpis(ctx);
@@ -1403,23 +2232,37 @@ async function runQuery(opts) {
     renderConclusion(ctx);
     syncRangeButtons();
 
-    // 6) 状态栏：标出每个接口是"命中缓存"还是"实时请求"
-    const tag = (r, label) =>
-      `<span class="tag ${r.fromCache ? 'hit' : ''}">${label}${r.fromCache ? '·缓存' : '·实时'}</span>`;
+    // 6) 状态栏：标出每个接口是"命中缓存"还是"实时请求"，以及 N/M 个接口可用
+    const okCount = settled.filter(s => s.ok).length;
+    const tag = (s) => s.ok
+      ? `<span class="tag ${s.fromCache ? 'hit' : ''}">${s.label}${s.fromCache ? '·缓存' : '·实时'}</span>`
+      : `<span class="tag miss">${s.label}·未取到</span>`;
+    const missing = settled.filter(s => !s.ok)
+      .map(s => `${s.label}（${escapeHtml(classifyError(s.error).reason)}）`).join('；');
+
     setStatus(
-      `数据就绪 · 纬度 ${fmt(lat, 4)}，经度 ${fmt(lon, 4)}` +
-      (window.__pickedPlace ? '（' + window.__pickedPlace + '）' : '') + '<br>' +
-      tag(fcRes, '多模型预报') + tag(enRes, '集合预报') +
+      `数据就绪 · ${okCount}/${settled.length} 个接口可用` +
+      `<span class="tag">纬度 ${fmt(lat, 4)}，经度 ${fmt(lon, 4)}` +
+      (window.__pickedPlace ? '（' + escapeHtml(window.__pickedPlace) + '）' : '') + '</span><br>' +
+      tag(fc) + tag(en) +
       `<span class="tag">${ctx.models.length} 个模型</span>` +
       `<span class="tag">${ctx.ens.members.length} 个集合成员</span>` +
-      (window.__chartLibMissing ? '<span class="tag">⚠ 图表库未加载，图表暂不可用</span>' : ''),
-      'ok'
+      (window.__chartLibMissing ? '<span class="tag miss">⚠ 图表库未加载，图表暂不可用</span>' : '') +
+      (missing
+        ? `<br>⚠️ ${missing} 未返回数据：集合相关的指标显示为「数据不可用」，其余照常。点「查询」可再试一次。`
+        : ''),
+      missing ? 'warn' : 'ok'
     );
 
-    updateTime.textContent = '数据更新时间：' +
-      new Date().toLocaleString('zh-CN', { hour12: false }) + ' ｜ ';
+    // 数据时间取两个接口里"最旧"的取回时刻：命中缓存时写「9 分钟前 · 来自本地缓存」，
+    // 而不是掩盖成"刚刚"。语义写在 title 里，免得被误读成预报起报时间。
+    updateTime.textContent = describeDataTime(settled);
+    updateTime.title = '这份数据从接口取回的时刻（不是预报的起报时间）；' +
+      '命中本地缓存时会显示当初缓存写入的时间。';
     refreshCacheInfo();
-    retryCount = 0;              // 成功即归零，下次失败从"未重试"算起
+    // 只有两个接口都成功才算"这次查询完整成功"，否则保留重试计数，
+    // 下次再点「重试」失败时才能如实写"已重试 N 次仍未成功"。
+    if (okCount === settled.length) retryCount = 0;
   } catch (err) {
     console.error(err);
     setLoading(false);
@@ -1430,11 +2273,79 @@ async function runQuery(opts) {
     } else {
       [overviewCard, modelCard, ensembleCard].forEach(c => { c.style.display = 'none'; });
       kpiGrid.innerHTML = '';
+      // 第 3 层明细区也要一起清掉：否则第一屏已经空了、下面却还挂着上一次查询的数字，
+      // 两处自相矛盾（这是"没有任何旧数据"的那条分支，本就不该有任何数字）。
+      const dg = document.getElementById('detailGrid');
+      if (dg) dg.innerHTML = '';
+      const dc = document.getElementById('detailCard');
+      if (dc) dc.style.display = 'none';
+      // 条件提示条也要一起收起：第一屏已经空了，还挂着上一次查询的"注意保暖"就是撒谎
+      renderAlerts({});
     }
     setStatusError(err);         // 错误原因 + 技术细节 + 重试按钮
   } finally {
     setLoading(false);
   }
+}
+
+/* 两个接口的固定身份：下标顺序必须和上面 Promise.allSettled 里的顺序一致 */
+const API_SPECS = [
+  { key: 'forecast', label: '多模型预报' },
+  { key: 'ensemble', label: '集合预报' }
+];
+
+/**
+ * Promise.allSettled 的一项 → 统一的 {ok, label, data, fromCache, error}。
+ * 失败的原因（reason）原样留着，交给 classifyError 翻成人话。
+ */
+function settleOf(result, spec) {
+  if (result && result.status === 'fulfilled' && result.value) {
+    return { ok: true, label: spec.label, data: result.value.data,
+             fromCache: !!result.value.fromCache,
+             dataAt: result.value.dataAt || null,   // 这份数据从接口取回的时刻
+             error: null };
+  }
+  return { ok: false, label: spec.label, data: null, fromCache: false, dataAt: null,
+           error: (result && result.reason) || new Error('接口未返回数据') };
+}
+
+/** 给错误挂一个"另一半接口是通的"标记，错误面板据此多说一句 */
+function withPartial(err, okLabel) {
+  if (err && okLabel) err.__partialOk = okLabel;
+  return err;
+}
+
+/** 把毫秒差写成"刚刚 / N 分钟前 / N 小时前" */
+function humanAge(ms) {
+  const min = Math.floor(Math.max(0, ms) / 60000);
+  if (min < 1)  return '刚刚';
+  if (min < 60) return min + ' 分钟前';
+  return Math.floor(min / 60) + ' 小时前';
+}
+
+/**
+ * 页脚的「数据时间」—— 如实说明这批数字是什么时候从接口取回来的。
+ *
+ * 为什么不能直接写 new Date()：命中本地缓存时（10 分钟内复用），
+ * 数据可能是 9 分钟前取回的，写「现在」就是在说谎 —— 这与整页
+ * "如实表达不确定性"的调子不一致。
+ *
+ * 两个接口各带各的 dataAt，取**最旧的那个**当作整页的数据时间：
+ * 只要有一个接口的数据偏旧，整页就不该自称是刚刚拿到的。
+ * 同时点名有几个接口确实取自缓存，免得"复用旧数据"被悄悄藏起来。
+ */
+function describeDataTime(settled) {
+  const oks = (settled || []).filter(s => s.ok && s.dataAt);
+  if (!oks.length) return '';                 // 拿不到可靠时刻宁可不写，也不编一个"现在"
+
+  const oldest      = Math.min.apply(null, oks.map(s => s.dataAt));
+  const cachedCount = oks.filter(s => s.fromCache).length;
+  const clock       = new Date(oldest).toLocaleString('zh-CN', { hour12: false });
+
+  return '数据时间：' + clock +
+    '（' + humanAge(Date.now() - oldest) +
+    (cachedCount ? `，其中 ${cachedCount}/${oks.length} 个接口来自本地缓存` : '') +
+    '）';
 }
 
 
@@ -1443,8 +2354,10 @@ async function runQuery(opts) {
    ======================================================================= */
 
 function buildContext(forecast, ensemble) {
-  const fHourly = forecast.hourly || {};
-  const eHourly = ensemble.hourly || {};
+  const fHourly = (forecast && forecast.hourly) || {};
+  // 集合预报是可选数据源：接口挂掉时这里收到 null，
+  // 统一当成"一个字段都没有"（而不是抛异常），后面各渲染函数靠空数组自行降级。
+  const eHourly = (ensemble && ensemble.hourly) || {};
 
   const fTime  = fHourly.time || [];
   const fStart = findStartIndex(fTime);       // 预报时间轴上的"当前小时"
@@ -1455,7 +2368,12 @@ function buildContext(forecast, ensemble) {
 
   const models = detectModels(fHourly);       // 动态识别实际返回的模型
 
-  // 每个模型的五个要素序列
+  // 每个模型的要素序列。
+  // 前五个是首版就有的（图表与原有卡片全靠它们）；
+  // 后面六个是阶段二新增的"体感层"要素，只服务于新增的体感 / 天气现象 / 阵风 / 能见度，
+  // 原有计算一个都没动。
+  // ⚠ 新增字段的可用性不一样（weather_code 三家都有、visibility 只有 GFS 有），
+  //    所以一律用 seriesOf 取，取不到就是 null，由消费方按"数据不可用"降级。
   const modelSeries = {};
   models.forEach(m => {
     modelSeries[m] = {
@@ -1463,7 +2381,15 @@ function buildContext(forecast, ensemble) {
       precipitation_probability: seriesOf(fHourly, 'precipitation_probability', m),
       temperature_2m:            seriesOf(fHourly, 'temperature_2m', m),
       cloud_cover:               seriesOf(fHourly, 'cloud_cover', m),
-      wind_speed_10m:            seriesOf(fHourly, 'wind_speed_10m', m)
+      wind_speed_10m:            seriesOf(fHourly, 'wind_speed_10m', m),
+
+      /* —— 阶段二新增：体感层 —— */
+      weather_code:              seriesOf(fHourly, 'weather_code', m),
+      apparent_temperature:      seriesOf(fHourly, 'apparent_temperature', m),
+      wind_gusts_10m:            seriesOf(fHourly, 'wind_gusts_10m', m),
+      visibility:                seriesOf(fHourly, 'visibility', m),
+      rain:                      seriesOf(fHourly, 'rain', m),
+      showers:                   seriesOf(fHourly, 'showers', m)
     };
   });
 
@@ -1478,15 +2404,37 @@ function buildContext(forecast, ensemble) {
 /* =======================================================================
    九之二、不确定性指标（四张卡 + 顶部综合建议的数据来源）
    -----------------------------------------------------------------------
-   统一口径：未来 48 小时。
+   统一口径：未来 48 小时 + 同一个"有雨"阈值 UNC_RAIN_MM。
      卡片 1  降雨是否一致：各模型 48h 总雨量 > 0.5mm 记为"有雨"，数 N/3
      卡片 2  雨量分歧程度：只在"有雨"的模型之间算 (最大 − 最小) ÷ 中位数
      卡片 3  雨量区间：50 个集合成员各自的 48h 总雨量 → P10 / P90（不含控制成员）
      卡片 4  峰值时间分歧：各模型 48h 内小时雨量最大的时刻，最早到最晚的跨度
+                          （那个最大时刻还须达到 HOUR_RAIN_MM，否则算"没有明确的峰值"）
+
+   另外两处"集合口径的数字"也走同一把尺子（成员 48h 总雨量 > 0.5mm）：
+     · 核心数字组的「48h 有效降雨概率」   —— wetMemberStats()
+     · 结论区的「48 小时集合概率」        —— 同一个函数
+   早先这两处用的是"某一小时 ≥0.5mm"，与卡片 1 的"48h 累计 >0.5mm"不同口径，
+   会出现「3/3 模型认为有雨」却只给出很低百分比的矛盾组合，现已统一。
    ======================================================================= */
 
 const UNC_HOURS   = 48;     // 不确定性指标统一的时间窗口（小时）
-const UNC_RAIN_MM = 0.5;    // 单个模型 48h 总雨量高于它，才算"这个模型认为会下雨"
+const UNC_RAIN_MM = 0.5;    // 全页唯一的"有雨"阈值（mm）：48 小时累计雨量高于它，才算有雨
+/* 「未来 24h 降雨（集合中位数）」那张卡的判据。它是 24 小时窗口，与上面的 48h 判据
+   不是同一个东西，所以单独命名 —— 免得日后有人把它和 UNC_RAIN_MM 当成同一个尺子改。 */
+const PERCEIVABLE_24H_MM = 0.5;
+
+/* 小时雨强的门槛（mm/小时）：一个小时里下到这么多，才算这一小时真的在下雨。
+   量纲是"每小时下多猛"，和上面两个"多少小时里累计了多少毫米"不是同一个维度，
+   所以必须单独命名 —— 复用 UNC_RAIN_MM 会让"改累计口径"顺手改掉"单小时口径"。
+
+   全页判断"这一小时算不算在下雨"的地方共用它，一共四处：
+     · 图 1 悬停的「本小时有降雨 / 本小时基本无雨」
+     · 图 3 悬停的「这一小时降水量 ≥0.1mm 的成员：N/50」
+     · 结论区「主要降雨时段」按它合并连续小时（rainPeriods 的默认门槛）
+     · 不确定性卡片 4：峰值小时雨强不到它，就算这个模型"没有明确的峰值"
+   它们要回答的是同一个问题，所以共用一把尺子（注意各自沿用原有的 ≥ / > 写法）。 */
+const HOUR_RAIN_MM = 0.1;
 
 /** "2026-09-24T03:00" → "03:00"（峰值时刻只需要"几点"） */
 function hhmm(str) {
@@ -1495,22 +2443,139 @@ function hhmm(str) {
   return String(t.h).padStart(2, '0') + ':00';
 }
 
-/** 数值兜底：NaN / Infinity / 非数字 → null（最终统一显示「—」） */
+/**
+ * 数值兜底：null / undefined / 空字符串 / NaN / Infinity / 非数字 → null（最终统一显示「—」）。
+ * 注意 Number(null) === 0、Number('') === 0 —— 如果直接 Number 一下，"缺数据"就会被
+ * 静默当成 0，变成一个"看起来合理但错误"的值。所以先把空值挡在门外，再判断数字。
+ */
 function numOrNull(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'string' && v.trim() === '') return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
 
-/** 一段小时雨的合计；没有数据或全是坏值 → null（而不是 0，避免把"缺数据"画成"没下雨"） */
+/* ---------------------------------------------------------------------------
+   显示精度（消除虚假精确）—— 步长与小数位全部来自 PRECISION，见文件顶部总表。
+   这一组是"数字 → 页面文字"的唯一出口，别在别处再写 toFixed / Math.round。
+   --------------------------------------------------------------------------- */
+
+/** 取整到指定步长 */
+function roundStep(x, step) {
+  return Math.round(x / step) * step;
+}
+
+/**
+ * 累计雨量 → 整数毫米；缺数据 → '—'（绝不写成 0 —— 0 是合法观测值）。
+ * 取整后落到 0、但原始值大于 0 时写成「<1」：
+ * 0.4mm 被写成「0 毫米」会被读成"一滴雨都没下"，比取整本身更不诚实。
+ * （「<」后面跟的是数字，HTML 解析器按文本处理，不会被当成标签。）
+ */
+function fmtAccum(mm) {
+  const n = numOrNull(mm);
+  if (n === null) return '—';
+  const r = Math.round(n / PRECISION.ACCUM_MM) * PRECISION.ACCUM_MM;
+  return (r === 0 && n > 0) ? '<1' : String(r);
+}
+
+/** 集合分位数 → 整数毫米（"不足一个刻度"的处理同 fmtAccum） */
+function fmtQuant(mm) {
+  const n = numOrNull(mm);
+  if (n === null) return '—';
+  const r = Math.round(n / PRECISION.QUANT_MM) * PRECISION.QUANT_MM;
+  return (r === 0 && n > 0) ? '<1' : String(r);
+}
+
+/**
+ * 概率 → 5% 步长整数。
+ * 额外夹逼：取整后不该出现 0% 与 100% 这种"必然"的说法 ——
+ * 实际 3% 被取整成 0% 会被读成"不可能"，实际 97% 被取整成 100% 会被读成"一定"。
+ * 所以 (0,5) → 5%，(95,100) → 95%；真的 0 / 真的 100 保持原样。
+ */
+function fmtProb5(p) {
+  const n = numOrNull(p);
+  if (n === null) return '—';
+  let r = roundStep(n, PRECISION.PROB_PCT);
+  if (r === 0 && n > 0) r = PRECISION.PROB_PCT;
+  if (r === 100 && n < 100) r = 100 - PRECISION.PROB_PCT;
+  return String(r);
+}
+
+/** 模型间相对分歧 → 10% 步长整数 */
+function fmtDiv10(d) {
+  const n = numOrNull(d);
+  return n === null ? '—' : String(roundStep(n, PRECISION.RELDIV_PCT));
+}
+
+/**
+ * 温度 → 固定 PRECISION.TEMP_C 位小数，**不削尾随 0**。
+ *
+ * 为什么不能直接用 fmt()：fmt() 会把 "18.0" 削成 "18"，同一句话里就出现
+ * 「10.7℃ ~ 18℃」这种一头有小数一头没有的写法，看着像精度不一致（用户提的就是这个）。
+ * 温度是"稳定的小数观测"，保留位数本身没有虚假精确的问题，
+ * 所以这里和小数位固定到底（10 → 「10.0」、-6 → 「-6.0」、0 → 「0.0」）。
+ * 缺数据仍然返回「—」，绝不用 0 顶替。
+ */
+function fmtTemp(c) {
+  const n = numOrNull(c);
+  if (n === null) return '—';
+  return n.toFixed(PRECISION.TEMP_C);
+}
+
+/**
+ * 累计雨量的区间文案（"优先说区间"）。
+ * 两端都取整；取整后同为 0 时写"不足 1 毫米"，而不是 "0 ~ 0 毫米" ——
+ * 后者读起来像"精确地不下雨"，比取整本身更不诚实。
+ */
+function accumRangeText(lo, hi) {
+  const a = numOrNull(lo), b = numOrNull(hi);
+  if (a === null || b === null) return '';
+  const ra = Math.round(a / PRECISION.ACCUM_MM) * PRECISION.ACCUM_MM;
+  const rb = Math.round(b / PRECISION.ACCUM_MM) * PRECISION.ACCUM_MM;
+  if (ra === 0 && rb === 0) return '不足 1 毫米';
+  if (ra === rb) return '约 ' + ra + ' 毫米';
+  return ra + ' ~ ' + rb + ' 毫米';
+}
+
+/** 一段小时雨的合计；整段一个有效值都没有 → null（而不是 0，避免把"缺数据"画成"没下雨"） */
 function sumSeg(arr) {
   if (!Array.isArray(arr) || !arr.length) return null;
-  let s = 0;
+  let s = 0, seen = 0;
   for (let i = 0; i < arr.length; i++) {
     const n = numOrNull(arr[i]);
     if (n === null) continue;
     s += n;
+    seen++;
   }
-  return Number.isFinite(s) ? s : null;
+  return (seen && Number.isFinite(s)) ? s : null;
+}
+
+/**
+ * 集合成员未来 48 小时的累计雨量：一个成员出一个数。
+ * 某个成员整段都取不到有效值 → null（不把"缺数据"当成"没下雨"）。
+ * 卡片 3 的分位数和下面的"有雨概率"共用它，保证两张卡同源。
+ */
+function memberTotals48(ens, eStart) {
+  if (!ens || !Array.isArray(ens.members)) return [];
+  return ens.members.map(arr =>
+    sumSeg(Array.isArray(arr) ? arr.slice(eStart, eStart + UNC_HOURS) : null));
+}
+
+/**
+ * 集合口径的"有雨"统计。
+ * 判据与卡片 1 完全一致：成员 48 小时累计雨量 > UNC_RAIN_MM。
+ * 分母只算"算得出总量"的成员，避免用缺数据的成员把概率往下稀释。
+ */
+function wetMemberStats(ens, eStart) {
+  const all    = memberTotals48(ens, eStart);
+  const usable = all.filter(v => v !== null);
+  const wet    = usable.filter(v => v > UNC_RAIN_MM).length;
+  return {
+    total:  all.length,                              // 成员总数
+    usable: usable.length,                           // 算得出总量的成员数
+    wet,
+    prob:   usable.length ? (wet / usable.length) * 100 : null   // 无可用成员 → null
+  };
 }
 
 /**
@@ -1579,8 +2644,8 @@ function computeUncertainty(ctx) {
   if (ens && Array.isArray(ens.members)) {
     ensMemberTotal = ens.members.length;
     // 每个成员各自的 48h 总雨量 → 排序后取分位数（分位数才代表"中间 80%"，不受极端成员摆布）
-    const totals = ens.members
-      .map(arr => sumSeg(Array.isArray(arr) ? arr.slice(eStart, eStart + UNC_HOURS) : null))
+    // 这份逐成员总量与「48h 有效降雨概率」共用 memberTotals48，两张卡的数字同源
+    const totals = memberTotals48(ens, eStart)
       .filter(v => v !== null)
       .sort((a, b) => a - b);
     ensCount = totals.length;                       // 真正算出总量的成员个数
@@ -1593,7 +2658,13 @@ function computeUncertainty(ctx) {
   const ensOk = [p10, p50, p90].every(v => Number.isFinite(v));
 
   /* ---------- 卡片 4：峰值时刻跨度（只比较"有雨"的模型） ---------- */
-  const peakModels = rainSet.filter(m => m.peakOffset >= 0 && m.peakValue > 0);
+  /* 峰值还得"够格"：峰值那一小时的小时雨强要达到 HOUR_RAIN_MM，才算这个模型有明确的峰值。
+     只判 `peakValue > 0` 太松 —— 48h 拢共 0.6mm、摊到每小时 0.01mm 的细雨本来就平，
+     却会被挑出一个"最大值所在的小时"写进卡片，报出"峰值时间分歧：4 小时"这种纯噪声。
+     注意这里卡的是"雨强"（mm/h），不是"累计量"：0.6mm 全砸在一小时里（那小时 0.6mm/h）
+     照样算有峰值 —— 这正是必须保住的情况，别把门槛挪到累计量上去。 */
+  const peakModels = rainSet.filter(m => m.peakOffset >= 0 && m.peakValue >= HOUR_RAIN_MM);
+  const weakPeaks  = rainCount - peakModels.length;   // 有雨、但小时雨强够不上门槛的模型数
   let spanHours = null;
   if (peakModels.length >= 2) {
     const offs = peakModels.map(m => m.peakOffset);
@@ -1605,7 +2676,7 @@ function computeUncertainty(ctx) {
     perModel, rainSet, rainCount,
     relDiv, divLevel, medTotal,
     p10, p50, p90, ensOk, ensCount, ensMemberTotal,
-    peakModels, spanHours,
+    peakModels, weakPeaks, spanHours,
     peakLevel: spanHours === null ? null : peakSpanLevel(spanHours)
   };
 }
@@ -1631,11 +2702,348 @@ function availNote(u) {
 }
 
 /**
+ * 未来 24 小时的主要降雨时段（成片降雨里雨量最大的一段）。
+ *
+ * 阶段一这段逻辑写在 renderConclusion 里；阶段二提取成函数，让第 2 层核心卡
+ * 与折叠区的结论卡共用同一份结果 —— 逻辑一个字没改，只是换了位置好被两处调用。
+ * 返回 periods / main 之外还带回 laterFirst（24 小时内没有雨时，往后找的第一段零星雨），
+ * 结论卡的"更晚的 X 可能有零星小雨"用的就是它。
+ */
+function mainRainPeriod(ctx) {
+  const { fStart, fHours, models, modelSeries } = ctx;
+  const WIN = Math.max(0, Math.min(24, fHours));
+
+  const avgPrecip = averageAcrossModels(models, modelSeries, 'precipitation');
+  const periods = rainPeriods(avgPrecip, fStart, WIN, HOUR_RAIN_MM)
+    .sort((a, b) => (b.total - a.total) || ((b.j - b.i) - (a.j - a.i)));
+  const main = periods.length ? periods[0] : null;
+
+  const later = main ? [] : rainPeriods(avgPrecip, fStart + WIN, Math.max(0, fHours - WIN), HOUR_RAIN_MM);
+  return { WIN, avgPrecip, periods, main, laterFirst: later.length ? later[0] : null };
+}
+
+
+/* =======================================================================
+   九之三、体感层：体感温度 / 天气现象 / 阵风 / 能见度（阶段二新增）
+   -----------------------------------------------------------------------
+   这一层只服务于新增的「体感与天气现象」核心卡和第 3 层明细区，
+   不参与原有四项不确定性指标（那份计算一个字都没动）。
+
+   数据可用性实测（见文件顶部 FIELD_POLICY）：
+     apparent_temperature / wind_gusts_10m —— 三个模型都有
+     weather_code                          —— 三个模型都有，但是"类别值"，不能平均
+     visibility                            —— 只有 GFS 有，ECMWF / ICON 全为 null
+
+   取不到值一律返回 null，由渲染层显示「—」，绝不拿 0 顶替。
+   ======================================================================= */
+
+/** 某要素在未来窗口内"哪些模型真的有值"（键存在但整段全 null 不算有值） */
+function fieldCoverage(ctx, field, start, count) {
+  const { models, modelSeries } = ctx;
+  const list = models || [];
+  const keys = list.filter(m => {
+    const arr = modelSeries[m] && modelSeries[m][field];
+    if (!Array.isArray(arr)) return false;
+    return arr.slice(start, start + count).some(v => numOrNull(v) !== null);
+  });
+  return { keys, total: list.length };
+}
+
+/**
+ * 未来窗口内的代表性天气现象。
+ *
+ * 为什么不能像别处那样"三模型平均"：weather_code 是 WMO 的类别编号，
+ * 51（毛毛雨）和 82（强阵雨）平均出 66.5，查表成了"冻雨" —— 凭空造出一个没发生过的现象。
+ * 所以只取 FIELD_POLICY.WEATHER_CODE_SOURCE 这一个模型的值，并在文案里注明来源。
+ *
+ * 代表性怎么挑：
+ *   窗口内只要有降水小时 → 取这些小时里最严重的一档（说"会下小雨"比说"多云"有用）
+ *   窗口内完全没有降水   → 取出现次数最多的那一档（晴 / 多云 / 阴 / 雾）
+ */
+function weatherCodeIn(ctx, start, count) {
+  const { models, modelSeries } = ctx;
+
+  // 首选来源不可用时，按 MODELS 顺序往后找第一个有值的模型，而不是直接显示「—」
+  const order = [FIELD_POLICY.WEATHER_CODE_SOURCE].concat(models || []);
+  let source = null, arr = null;
+  for (let i = 0; i < order.length; i++) {
+    const a = modelSeries[order[i]] && modelSeries[order[i]].weather_code;
+    if (Array.isArray(a) && a.slice(start, start + count).some(v => numOrNull(v) !== null)) {
+      source = order[i]; arr = a; break;
+    }
+  }
+  if (!arr) return { code: null, source: null, wetHours: 0, totalHours: 0, codes: [] };
+
+  const codes = arr.slice(start, start + count).map(numOrNull).filter(v => v !== null);
+  if (!codes.length) return { code: null, source, wetHours: 0, totalHours: 0, codes: [] };
+
+  const wet = codes.filter(c => { const i = wmoInfo(c); return i && i.wet; });
+  let pick;
+  if (wet.length) {
+    pick = Math.max.apply(null, wet);
+  } else {
+    const tally = {};
+    codes.forEach(c => { tally[c] = (tally[c] || 0) + 1; });
+    pick = Number(Object.keys(tally)
+      .sort((a, b) => (tally[b] - tally[a]) || (Number(b) - Number(a)))[0]);
+  }
+  return { code: pick, source, wetHours: wet.length, totalHours: codes.length, codes };
+}
+
+/** 体感层一次性算完：体感温度 / 天气现象 / 阵风 / 能见度 / 小时雨强峰值 */
+function computeComfort(ctx) {
+  const { fStart, fHours, models, modelSeries } = ctx;
+  const WIN = Math.max(0, Math.min(24, fHours));      // 体感统一看未来 24 小时
+
+  /* ---------- 体感温度：三模型平均 → 窗口内再取平均 ---------- */
+  const feelsArr = averageAcrossModels(models, modelSeries, 'apparent_temperature');
+  const feelsSeg = (feelsArr || []).slice(fStart, fStart + WIN)
+    .map(numOrNull).filter(v => v !== null);
+  const feelsAvg = feelsSeg.length ? sum(feelsSeg) / feelsSeg.length : null;
+  const feelsLv  = feelsLevel(feelsAvg);              // 无效值返回 null
+  /* 窗口内的体感上下限。
+     卡片④ 的副标题要给"体感 X℃ ~ Y℃"这个区间；
+     提示条的"注意保暖 / 注意补水"分别用下限与上限 —— 用平均值会漏掉
+     "白天 20℃、夜里 -3℃"这种真正需要提醒的天气（平均值 8.5℃ 看起来无事）。 */
+  const feelsMin = feelsSeg.length ? minOf(feelsSeg) : null;
+  const feelsMax = feelsSeg.length ? maxOf(feelsSeg) : null;
+
+  /* ---------- 气温（temperature_2m）上下限：综合评分"温度不适"用 ----------
+     20~26℃ 舒适（0 分），偏离越远越高。同样取下限 / 上限而不是平均，
+     理由同体感：平均会漏掉"白天 30℃、夜里 -3℃"这种真正难受的天。 */
+  const tempArr = averageAcrossModels(models, modelSeries, 'temperature_2m');
+  const tempSeg = (tempArr || []).slice(fStart, fStart + WIN)
+    .map(numOrNull).filter(v => v !== null);
+  const tempMin = tempSeg.length ? minOf(tempSeg) : null;
+  const tempMax = tempSeg.length ? maxOf(tempSeg) : null;
+
+  /* ---------- 天气现象（单一来源，见 weatherCodeIn 的说明） ---------- */
+  const wc = weatherCodeIn(ctx, fStart, WIN);
+
+  /* ---------- 小时雨强的峰值（多模型平均）----------
+     降雨体感卡与提示条的"雨强"那条都用它。
+     注意与卡片③「主要降雨时段」里的"本段最强 1 小时"区分：那一个是**主时段内部**的峰值，
+     这里是**整个 24 小时窗口**的最大小时雨强 —— 两者可能不是同一个小时
+     （一段下得久但都不猛，另一处单小时很猛时，就会分叉）。卡片上的措辞必须各自说清范围。 */
+  const precArr = averageAcrossModels(models, modelSeries, 'precipitation');
+  let hourPeak = null, hourPeakIdx = -1;
+  (precArr || []).slice(fStart, fStart + WIN).forEach((v, k) => {
+    const n = numOrNull(v);
+    if (n !== null && (hourPeak === null || n > hourPeak)) { hourPeak = n; hourPeakIdx = fStart + k; }
+  });
+
+  /* ---------- 阵风：三模型平均后的窗口峰值 ---------- */
+  const gustArr = averageAcrossModels(models, modelSeries, 'wind_gusts_10m');
+  let gustPeak = null;                                // 没有有效时段就保持 null，不落回 0
+  (gustArr || []).slice(fStart, fStart + WIN).forEach(v => {
+    const n = numOrNull(v);
+    if (n !== null && (gustPeak === null || n > gustPeak)) gustPeak = n;
+  });
+
+  /* ---------- 阶段三·风雨耦合 ----------
+     逐小时算"合成风力 → 风力系数 → 有效雨强"，取窗口内的有效雨强峰值。
+     合成风力 = 风速×0.6 + 阵风×0.4（WIND_COMBINE，经验近似）；
+     风力系数分段线性（WIND_COEFF_STOPS），>30 继续外推。
+     注意：有效雨强的峰值小时可能与原始雨强峰值小时不同（一阵风能把"稍小的雨"推成最难受），
+     所以这里单独记一个 effRainPeakIndex，卡片上按它报时刻。 */
+  const speedArr = averageAcrossModels(models, modelSeries, 'wind_speed_10m');
+  let windPeak = null;
+  let effRainPeak = null, effRainPeakIdx = null;
+  for (let k = 0; k < WIN; k++) {
+    const idx = fStart + k;
+    const sp = numOrNull(speedArr && speedArr[idx]);
+    const gu = numOrNull(gustArr && gustArr[idx]);
+    const pr = numOrNull(precArr && precArr[idx]);
+    const wIdx = windCombine(sp, gu);
+    if (wIdx !== null && (windPeak === null || wIdx > windPeak)) windPeak = wIdx;
+    const eff = effectiveRainIntensity(pr, wIdx);
+    if (eff !== null && (effRainPeak === null || eff > effRainPeak)) {
+      effRainPeak = eff; effRainPeakIdx = idx;
+    }
+  }
+
+  /* ---------- 能见度：只有 GFS 有值，如实标明 ---------- */
+  const visCover = fieldCoverage(ctx, 'visibility', fStart, WIN);
+  const visSrc   = FIELD_POLICY.VISIBILITY_SOURCE;
+  const visArr   = modelSeries[visSrc] && modelSeries[visSrc].visibility;
+  let visMin = null;
+  if (Array.isArray(visArr)) {
+    visArr.slice(fStart, fStart + WIN).forEach(v => {
+      const n = numOrNull(v);
+      if (n !== null && (visMin === null || n < visMin)) visMin = n;
+    });
+  }
+
+  return {
+    win: WIN,
+    feelsAvg, feelsLv, feelsMin, feelsMax,
+    tempMin, tempMax,
+    wc, wcInfo: wc.code !== null ? wmoInfo(wc.code) : null,
+    hourPeak, hourPeakIndex: hourPeak === null ? null : hourPeakIdx,
+    windPeak,
+    effRainPeak, effRainPeakIndex: effRainPeak === null ? null : effRainPeakIdx,
+    gustPeak, gustLv: gustLevel(gustPeak),
+    visMin, visLv: visLevel(visMin), visSource: visMin !== null ? visSrc : null,
+    visCover
+  };
+}
+
+/**
+ * 窗口内"小时雨强 ≥ HEAVY_HOUR_MM"的连续段。
+ *
+ * 为什么不复用 rainPeriods：判据符号不一样，而符号在这里是有意义的 ——
+ *   rainPeriods  用 **> threshold**（"这一小时有没有雨"，严格大于 0.1）
+ *   heavyRuns    用 **≥ threshold**（用户指定 "小时雨强 ≥ 2.5mm" 才算强降雨）
+ * 顺手复用会把"刚好 2.5"这一小时悄悄漏掉。两件事的产出也不同：
+ * 一个要"这一段累计多少毫米"，一个要"这一段连续了几个小时"。
+ *
+ * 返回 [{ i, j, hours, total }]，i / j 为时间轴下标（含两端）。
+ * 缺数据的小时按 0 处理（延续 averageAcrossModels 的口径），于是它会**打断**连续段
+ * —— 这是保守方向：拿不到数据就不说"连着下了 N 小时"。
+ */
+function heavyRuns(series, start, count, threshold = HEAVY_HOUR_MM) {
+  const out = [];
+  const arr = series || [];
+  let cur = null;
+  for (let i = start; i < start + count && i < arr.length; i++) {
+    const v = round2(arr[i]);
+    if (v >= threshold - 1e-9) {           // 留浮点容差：平均后的 2.4999999 也算够
+      if (!cur) cur = { i, j: i, hours: 0, total: 0 };
+      cur.j = i; cur.hours++; cur.total += v;
+    } else if (cur) { out.push(cur); cur = null; }   // 断了，收一段
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+/**
+ * 「最长连续强降雨」卡的数据。
+ *
+ * 口径由用户指定（这次它的名字也改了：原来的「持续时长」名不副实 ——
+ * 它统计的是累计小时数，回答不了"最长连下多久"）：
+ *   · 主值取**最长的连续段**（并列时取累计雨量大的，再并列取靠前的）
+ *   · 其余段落压成一行小字，不逐段平铺，也不用"总数 + 跨度"那种含义模糊的组合
+ *   · 第一段的起点正好是窗口第 0 小时 → 说明这场雨此刻还在下，标注"（正在持续）"
+ *   · 窗口内一个够格的小时都没有 → 返回 main = null，渲染层写「未来 24h 无强降雨」，
+ *     而不是"0 小时"（0 小时听起来像"统计过、结果是零"，其实是没有这件事）
+ */
+function longestHeavyRun(ctx) {
+  const { fStart, fHours, models, modelSeries, fTime } = ctx;
+  const WIN = Math.max(0, Math.min(24, fHours));
+  const series = averageAcrossModels(models, modelSeries, 'precipitation');
+  const runs = heavyRuns(series, fStart, WIN);
+
+  let main = null;
+  runs.forEach(r => {
+    if (!main || r.hours > main.hours || (r.hours === main.hours && r.total > main.total)) main = r;
+  });
+
+  return {
+    WIN, runs, main,
+    others: runs.filter(r => r !== main),
+    totalHours: runs.reduce((a, r) => a + r.hours, 0),
+    ongoing: !!main && main.i === fStart,     // 起点就是"现在这一小时" → 还在下
+    fTime
+  };
+}
+
+/** 其余强降雨段落压成一行小字用（最多列 2 段，更多就写"等 N 段"） */
+function heavyOthersText(runs, fTime) {
+  const txt = runs.slice(0, 2).map(r =>
+    `${hhmm(fTime[r.i])} ~ ${hhmm(plusOneHour(fTime[r.j]))}`);
+  return txt.join('、') + (runs.length > txt.length ? ` 等 ${runs.length} 段` : '');
+}
+
+/**
+ * 「官方天气现象」卡：取"未来 24h 内 ECMWF 降水最多的那一小时"的 weather_code。
+ *
+ * 为什么用 ECMWF **自己的**降水序列定位峰值小时，而不是页面别处那个多模型平均的峰值：
+ * weather_code 是类别编号、不能平均（见 FIELD_POLICY.WEATHER_CODE_SOURCE）。
+ * 如果拿"平均峰值时刻"去查 ECMWF 的代码，就会得到
+ * "平均说这一小时雨最大、ECMWF 却说是晴"的错配 —— 卡片会自己打自己的脸。
+ * 用户明确要求"单源自洽"：峰值小时与代码必须来自同一个模型。
+ * 代价是这张卡的峰值时刻可能与降雨体感卡不同，所以卡片底部必须写明口径
+ * （FIELD_POLICY.WEATHER_CODE_SCOPE_TPL）。
+ *
+ * 三种"算不出来"的情形分开返回，交给渲染层写出不同的原因，不糊成一句"无数据"：
+ *   no-precip —— 降水序列整段没值（这张卡连"哪一小时最湿"都定不了）
+ *   no-code   —— 降水有值，但 weather_code 整段没值（或峰值那一小时的代码恰好缺失）
+ */
+function phenomenonOfMaxPrecip(ctx) {
+  const { fStart, fHours, fTime, modelSeries } = ctx;
+  const WIN = Math.max(0, Math.min(24, fHours));
+  const src = FIELD_POLICY.WEATHER_CODE_SOURCE;
+  const s = modelSeries[src] || {};
+
+  const seg = arr => (Array.isArray(arr)
+    ? arr.slice(fStart, fStart + WIN).map(numOrNull) : null);
+
+  const pSeg = seg(s.precipitation);
+  if (!pSeg || !pSeg.some(v => v !== null)) {
+    return { ok: false, reason: 'no-precip', source: src };
+  }
+  const cSeg = seg(s.weather_code);
+  if (!cSeg || !cSeg.some(v => v !== null)) {
+    return { ok: false, reason: 'no-code', source: src };
+  }
+
+  // 峰值小时只在"雨量确实有值"的小时里挑，缺数据的小时不参与比较
+  let best = -1;
+  pSeg.forEach((v, k) => {
+    if (v === null) return;
+    if (best < 0 || v > pSeg[best]) best = k;
+  });
+  const code = cSeg[best];
+  if (code === null) return { ok: false, reason: 'no-code', source: src };
+
+  const idx = fStart + best;
+  return {
+    ok: true, source: src, index: idx, time: fTime[idx],
+    amount: pSeg[best], code,
+    info: wmoInfo(code),
+    isPhenomenon: isPhenomenon(code)
+  };
+}
+
+/**
+ * 条件提示条：按 ALERT_RULES 逐条判定 → 按 prio 排序 → 取前 ALERT_THRESHOLD.MAX 条。
+ * 多出来的条数原样带回（more），由渲染层压成一行"还有 N 项"的小尾巴 —— 不静默丢弃。
+ * 字段缺失的规则在 when() 里就返回 false，等于这条不存在（见 ALERT_RULES 表头说明）。
+ */
+function computeAlerts(comfort, prefs) {
+  const c = comfort || {};
+  const p = prefs || {};
+  const rules = ALERT_RULES.slice();
+
+  /* 会骑车偏好 → 追加一条"阵风侧风"提示（阈值 30km/h，比"伞被吹翻"的 35 低）。
+     这是偏好驱动的条件，不在常量 ALERT_RULES 里 —— 默认不该出现。 */
+  if (p.bike) {
+    rules.push({
+      id: 'bike-gust', prio: 2, cls: 'a-warn', at: '阵风 > 30km/h（会骑车）',
+      when: cc => numOrNull(cc.gustPeak) !== null && cc.gustPeak > PREF_BIKE_GUST_KMH,
+      text: cc => `阵风 ${fmt(cc.gustPeak, 1)} km/h，骑车 / 电动车注意侧风`
+    });
+  }
+
+  const hit = rules
+    .filter(r => { try { return !!r.when(c); } catch (e) { return false; } })
+    .sort((a, b) => a.prio - b.prio);
+  const items = hit.slice(0, ALERT_THRESHOLD.MAX)
+    .map(r => ({ id: r.id, at: r.at, cls: r.cls, text: r.text(c) }));
+  return { items, more: Math.max(0, hit.length - items.length), total: hit.length };
+}
+
+/** "ECMWF" 这样的展示名；未知键回退成键本身 */
+function modelName(key) {
+  return (MODEL_META[key] || {}).name || key || '—';
+}
+
+/**
  * 顶部综合建议：一句话结论 + 依据。
  * 三个模型都可用时严格按需求的四句话；模型有缺失时退化成最接近的一条，
  * 并在依据里如实写上「N/3 个模型可用」，不假装是完整判断。
  */
-function buildAdvice(u) {
+function buildAdvice(u, comfort, prefs) {
   const { rainCount, avail, relDiv } = u;
   const allRain = avail > 0 && rainCount === avail;
 
@@ -1664,10 +3072,17 @@ function buildAdvice(u) {
   } else {
     parts.push(`${rainCount}/${avail} 模型预测有雨`);
   }
-  if (relDiv !== null)   parts.push(`雨量相对分歧 ${fmt(relDiv, 0)}%`);
+  if (relDiv !== null)   parts.push(`雨量相对分歧 ${fmtDiv10(relDiv)}%`);
   if (u.spanHours !== null) parts.push(`峰值时间跨度 ${u.spanHours} 小时`);
   if (u.short)           parts.push(`预报仅覆盖 ${u.win} 小时`);
   if (avail < u.totalWant) parts.push(`${avail}/${u.totalWant} 个模型可用`);
+
+  /* 阶段三·淋湿风险：按有效雨强判定（勾「有伞」下调一档）。只在确实有雨时给。 */
+  const eff = comfort && numOrNull(comfort.effRainPeak);
+  if (eff !== null && eff > 0) {
+    const wet = wetRiskText(eff, prefs);
+    if (wet) parts.push('淋湿风险：' + wet);
+  }
 
   return { text, cls, why: '依据：' + parts.join('；') };
 }
@@ -1694,18 +3109,18 @@ function uncertaintyCards(u) {
   cards.push({ label: '降雨是否一致（48h）', value, cls, note: note + tail });
 
   /* 卡片 2｜雨量分歧程度（只在有雨的模型之间比较） */
-  const rainNames = u.rainSet.map(m => `${m.name} ${fmt(m.total)}mm`).join(' · ');
+  const rainNames = u.rainSet.map(m => `${m.name} ${fmtAccum(m.total)}mm`).join(' · ');
   if (u.rainCount === 0) {
     cards.push({ label: '雨量分歧程度', value: '—', cls: 'c-muted',
       note: '没有模型预报有效降雨，无需比较' + tail });
   } else if (u.rainCount === 1) {
     cards.push({ label: '雨量分歧程度', value: '样本不足', cls: 'c-muted',
-      note: `只有 ${u.rainSet[0].name} 有雨（${fmt(u.rainSet[0].total)}mm），无法比较` + tail });
+      note: `只有 ${u.rainSet[0].name} 有雨（${fmtAccum(u.rainSet[0].total)}mm），无法比较` + tail });
   } else if (u.relDiv === null) {
     cards.push({ label: '雨量分歧程度', value: '—', cls: 'c-muted',
       note: '可用模型的中位雨量为 0，无法计算相对分歧' + tail });
   } else {
-    cards.push({ label: '雨量分歧程度', value: fmt(u.relDiv, 0), unit: '%', cls: u.divLevel.cls,
+    cards.push({ label: '雨量分歧程度', value: fmtDiv10(u.relDiv), unit: '%', cls: u.divLevel.cls,
       note: `${rainNames} ｜ ${u.divLevel.text}` + tail });
   }
 
@@ -1713,8 +3128,8 @@ function uncertaintyCards(u) {
   if (u.ensOk) {
     cards.push({
       label: '雨量区间（P10~P90）',
-      value: `${fmt(u.p10)} ~ ${fmt(u.p90)}`, unit: 'mm', cls: 'c-accent2',
-      note: `覆盖 80% 集合成员，中位数 ${fmt(u.p50)} mm`
+      value: `${fmtQuant(u.p10)} ~ ${fmtQuant(u.p90)}`, unit: 'mm', cls: 'c-accent2',
+      note: `覆盖 80% 集合成员，中位数 ${fmtQuant(u.p50)} mm`
     });
   } else {
     cards.push({
@@ -1725,18 +3140,27 @@ function uncertaintyCards(u) {
   }
 
   /* 卡片 4｜峰值时间分歧 */
+  /* weakNote：有雨、但小时雨强够不上门槛的模型。要如实说清"少算了几个、为什么"，
+     否则"用 2 个模型比出来的跨度"会被读成"3 个模型都比过了"。 */
   const peakNames = u.peakModels.map(m => `${m.name} ${m.peakTime}`).join(' · ');
+  const weakNote  = u.weakPeaks > 0
+    ? `另有 ${u.weakPeaks} 个模型雨强不足 ${HOUR_RAIN_MM}mm/h` : '';
   if (!u.peakModels.length) {
-    cards.push({ label: '峰值时间分歧', value: '无有效降水', cls: 'c-muted',
+    cards.push({
+      label: '峰值时间分歧',
+      value: u.rainCount ? '无明确峰值' : '无有效降水',
+      cls: 'c-muted',
       note: u.rainCount
-        ? '有雨但峰值时刻不明确，无法比较'
-        : `${u.win}h 内各模型雨量均 ≤ ${UNC_RAIN_MM}mm` });
+        ? `${u.rainCount} 个有雨模型的小时雨强都不到 ${HOUR_RAIN_MM}mm/h，是平缓细雨，没有可比较的峰值`
+        : `${u.win}h 内各模型雨量均 ≤ ${UNC_RAIN_MM}mm`
+    });
   } else if (u.spanHours === null) {
     cards.push({ label: '峰值时间分歧', value: '样本不足', cls: 'c-muted',
-      note: `${u.peakModels[0].name} ${u.peakModels[0].peakTime}（只有 1 个模型有雨，无法比较）` });
+      note: `${u.peakModels[0].name} ${u.peakModels[0].peakTime}（` +
+        (u.weakPeaks ? `${weakNote}，无法比较` : '只有 1 个模型有雨，无法比较') + '）' });
   } else {
     cards.push({ label: '峰值时间分歧', value: `${u.spanHours} 小时`, cls: u.peakLevel.cls,
-      note: `${peakNames} ｜ ${u.peakLevel.text}` + tail });
+      note: `${peakNames} ｜ ${u.peakLevel.text}` + (weakNote ? ` ｜ ${weakNote}` : '') + tail });
   }
 
   return cards;
@@ -1754,31 +3178,66 @@ function renderKpis(ctx) {
   const p50_24  = sum(stats.p50.slice(eStart, eStart + 24));
   const p50_all = sum(stats.p50.slice(eStart));
 
+  /* 未来 24 小时的 P10 / P90 —— 第 2 层核心卡"优先说区间"用。
+     同样取自集合分位数，没有新造口径，只是以前没被单独取出来用。 */
+  const p10_24 = sum(stats.p10.slice(eStart, eStart + 24));
+  const p90_24 = sum(stats.p90.slice(eStart, eStart + 24));
+
+  /* 未来 48 小时 / 未来 7 天的 P90 —— 第 3 层明细区"偏多情形"用（阶段一已算过 p90_48） */
+  const p90_48  = sum(stats.p90.slice(eStart, eStart + 48));
+  const p90_all = sum(stats.p90.slice(eStart));
+
   /* 未来 48 小时"有效降雨"概率
-     口径：某个成员只要在 48 小时内出现过 ≥0.5mm 的小时，就算这个成员预报了有效降雨 */
-  let hitMembers = 0;
-  ens.members.forEach(m => {
-    if (m.slice(eStart, eStart + 48).some(v => (Number(v) || 0) >= 0.5)) hitMembers++;
-  });
-  const rainProb48 = ens.members.length ? Math.round(hitMembers / ens.members.length * 100) : 0;
+     口径与卡片 1 完全一致：成员 48 小时累计雨量 > UNC_RAIN_MM。
+     全页只有这一把尺子，不会出现"3/3 模型认为有雨"却只给出很低百分比的矛盾组合。 */
+  const wet48 = wetMemberStats(ens, eStart);
+  const rainProb48 = wet48.prob === null ? null : Math.round(wet48.prob);
 
   /* 集合成员整体缺失时，凡是从成员算出来的数字都不要假装是 0，统一显示「—」 */
-  const ensUsable = ens.members.length > 0;
+  const ensUsable = wet48.usable > 0;
+  const probOk    = ensUsable && rainProb48 !== null;
 
   /* 四项不确定性（48h 口径）+ 顶部综合建议：两者共用同一份计算结果 */
   const unc = computeUncertainty(ctx);
-  renderAdvice(unc);
+
+  /* 体感层（阶段二新增）：只服务第 2 层核心卡与第 3 层明细区，
+     不参与上面那份不确定性计算，也没有改动它的任何结论。
+     阶段三在此基础上追加了风雨耦合（有效雨强 / 合成风力 / 温度上下限），
+     综合建议、提示条、评分卡都要用，所以必须先于它们算出来。 */
+  const comfort = computeComfort(ctx);
+
+  /* 我的偏好（阶段三）：勾选状态存 localStorage，直接影响淋湿风险 / 提示条 / 评分权重 */
+  const prefs = loadPrefs();
+
+  renderAdvice(unc, comfort, prefs);     // ← 第 1 层：一句话综合建议 + 淋湿风险 + 免责
+
+  /* 条件提示条（第 1 层与第 2 层之间）：只有满足条件才出现，一条都不满足时完全不占空间。 */
+  renderAlerts(comfort, prefs);
+
+  /* 阶段三·综合评分 + 我的偏好：都在第 3 层折叠区（顶部），不占第一屏。 */
+  const scores = computeScores(comfort, prefs);
+  renderScoreSection(comfort, scores, prefs);
+  renderPrefSection(prefs);
 
   /* 未来 24 小时气温：各模型求平均后取区间 */
   const temps = models.map(m => modelSeries[m].temperature_2m)
     .filter(Boolean).map(a => a.slice(fStart, fStart + 24).map(Number));
   let tempValue = '—', tempNote = '—';
+  // 区间端点提到外层：第 2 层的气温卡主值就是这两个数，第 3 层的气温卡用均值 + 区间
+  let tempMin = null, tempMax = null;
   if (temps.length) {
     const len = Math.min.apply(null, temps.map(a => a.length));
     const avg = [];
     for (let i = 0; i < len; i++) avg.push(sum(temps.map(a => a[i])) / temps.length);
-    tempValue = fmt(sum(avg) / (avg.length || 1), 1);
-    tempNote  = `${fmt(minOf(avg))}℃ ~ ${fmt(maxOf(avg))}℃（24h）`;
+    const tMin = minOf(avg), tMax = maxOf(avg);   // 无有效温度时返回 null
+    tempMin = tMin; tempMax = tMax;
+    /* 温度统一走 fmtTemp：固定 1 位小数、不削尾随 0。
+       卡片的"大数字"和下面那行区间必须是同一种写法，否则同一张卡上
+       「18℃」配「10.7℃ ~ 18.0℃」又是一处不一致。 */
+    if (avg.length) tempValue = fmtTemp(sum(avg) / avg.length);
+    if (tMin !== null && tMax !== null) {
+      tempNote = `${fmtTemp(tMin)}℃ ~ ${fmtTemp(tMax)}℃（24h）`;
+    }
   }
 
   /* 可用时段内的最大风速：模型平均后的峰值 */
@@ -1787,64 +3246,494 @@ function renderKpis(ctx) {
   let windValue = '—', windNote = '—';
   if (winds.length) {
     const len = Math.min.apply(null, winds.map(a => a.length));
-    let peak = 0;
+    let peak = null;                              // 没有有效时段就保持 null，不落回 0
     for (let i = 0; i < len; i++) {
       const v = sum(winds.map(a => a[i])) / winds.length;
-      if (v > peak) peak = v;
+      if (peak === null || v > peak) peak = v;
     }
-    windValue = fmt(peak, 1);
-    windNote  = peak >= 39 ? '风力较强，注意防范' : (peak >= 25 ? '风力中等偏大' : '风力温和');
+    if (peak !== null) {
+      windValue = fmt(peak, 1);
+      windNote  = peak >= 39 ? '风力较强，注意防范' : (peak >= 25 ? '风力中等偏大' : '风力温和');
+    }
   }
 
   /* 未来 24 小时平均云量 */
   const clouds = models.map(m => modelSeries[m].cloud_cover)
     .filter(Boolean).map(a => a.slice(fStart, fStart + 24).map(Number));
-  let cloudAvg = 0;
+  let cloudAvg = null;
   if (clouds.length) {
     const len = Math.min.apply(null, clouds.map(a => a.length));
     let s = 0, c = 0;
     for (let i = 0; i < len; i++) { s += sum(clouds.map(a => a[i])) / clouds.length; c++; }
-    cloudAvg = c ? s / c : 0;
+    if (c) cloudAvg = s / c;                      // 没有有效时段保持 null
   }
 
-  /* ---------- 第 2 组：核心数字 ---------- */
-  const coreCards = [
-    { label: '未来 24h 降雨（集合中位数）',
-      value: ensUsable ? fmt(p50_24) : '—', unit: ensUsable ? 'mm' : '',
-      note: ensUsable ? (p50_24 >= 0.5 ? '有可感知的降雨' : '基本无有效降雨') : '集合成员数据不可用',
-      cls: !ensUsable ? 'c-muted' : (p50_24 >= 10 ? 'c-warn' : (p50_24 >= 0.5 ? 'c-accent' : 'c-ok')) },
+  /* ---------- 云量可用性（阶段一"环境卡"用的判定，原样保留） ---------- */
+  const cloudOk = cloudAvg !== null && Number.isFinite(cloudAvg);
 
-    { label: '48h 有效降雨概率',
-      value: ensUsable ? String(rainProb48) : '—', unit: ensUsable ? '%' : '',
-      note: ensUsable ? `${hitMembers}/${ens.members.length} 个集合成员预报有雨` : '集合成员数据不可用',
-      cls: !ensUsable ? 'c-muted' : (rainProb48 >= 70 ? 'c-accent2' : (rainProb48 >= 35 ? 'c-warn' : 'c-ok')) },
+  /* ---------- 第 2 层：固定 6 张核心卡 ----------
+     容器类名从 kpi-groups 换成 kpi-grid core-6：kpi-groups 是"多分组"时代的样式，
+     现在第一屏只有一组、且固定 6 张（宽屏 3×2，窄屏 2×3）。 */
+  kpiGrid.className = 'kpi-grid core-6';
+  kpiGrid.innerHTML = coreCards(ctx, unc, comfort, {
+    ensUsable, probOk, rainProb48, wet48,
+    p50_24, p10_24, p90_24, p50_all, p90_48, p90_all,
+    tempValue, tempNote, tempMin, tempMax, windValue, windNote, cloudOk, cloudAvg
+  }).map(kpiCardHtml).join('');
+
+  /* ---------- 第 3 层：其余指标全部进折叠区 ---------- */
+  renderDetail(ctx, unc, comfort, {
+    ensUsable, p50_24, p10_24, p90_24, p50_all, p90_48, p90_all,
+    tempValue, tempNote, tempMin, tempMax, windValue, windNote, cloudOk, cloudAvg
+  });
+}
+
+
+/* =======================================================================
+   十之一、第 2 层：固定 6 张核心卡（阶段二新增）
+   -----------------------------------------------------------------------
+   阶段一第一屏是"核心数字 3 张 + 不确定性 4 张 + 环境 3 张"共 10 张，
+   卡片一多，页面就退化成"数据面板"而不是"决策面板"。
+   阶段二按协议压到固定 6 张（一张不多），按阅读顺序回答六个决策问题：
+     ① 会不会下、下多少　② 概率多大　③ 什么时候下
+     ④ 出门什么体感　　　⑤ 该不该信　⑥ 最坏能到多少
+   其余指标一个都没删，只是搬到了第 3 层折叠区（见 renderDetail）。
+
+   凡涉及阈值 / 映射表 / 分级的地方一律引用文件顶部总表，这里不写裸字面量；
+   凡累计雨量一律走 fmtAccum（整数毫米），概率走 fmtProb5，分歧走 fmtDiv10。
+   ======================================================================= */
+
+function coreCards(ctx, unc, comfort, b) {
+  const { fTime } = ctx;
+  const cards = [];
+
+  /* ① 未来 24 小时降雨体感：回答"这雨下在身上是什么感觉"。
+     2026-09-23 起取代原来的「未来 24 小时降雨」（那张卡的"24h 累计 + 国标等级 + 成员区间"
+     一条都没删，整卡搬到了第 3 层长时效组，见 renderDetail）。
+
+     主值取**小时雨强**对应的体感档；累计量与国标等级降为一行对照 ——
+     两把尺子口径不同（雨强 vs 累计），所以卡片底部必须写明，否则会出现
+     "体感说毛毛细雨、国标说小雨"这种看着自相矛盾的组合。 */
+  {
+    /* 主值按**有效雨强**（已含风雨耦合）判定；原始雨强保留为一行对照（用户要求）。
+       两者的档位名可能不同（一阵风能把"小雨"推成"中雨"），所以对照行必须写清"未考虑风"。 */
+    const lv    = rainFeelLevel(comfort.effRainPeak);   // 【经验值】有效雨强档
+    const grade = rainGrade24h(b.p50_24);               // 【国家标准】GB/T 28592-2012（24h 累计）
+    const effOk = comfort.effRainPeak !== null && comfort.effRainPeakIndex !== null;
+    const rawOk = comfort.hourPeak !== null && comfort.hourPeakIndex !== null;
+    const foot = [];
+    if (b.ensUsable) foot.push(`24h 累计 ${fmtAccum(b.p50_24)} mm（国标：${grade.name}）`);
+    if (rawOk) foot.push(`原始雨强峰值 ${fmt(comfort.hourPeak, PRECISION.HOUR_MM)} mm/h（未考虑风）`);
+    foot.push(CARD_RAIN_FEEL_SCOPE_NOTE);
+    foot.push(DISCLAIMER_NOTE);
+    cards.push({
+      label: '未来 24 小时降雨体感',
+      value: lv ? lv.name : '—',
+      note: effOk
+        ? `有效雨强峰值 ${fmt(comfort.effRainPeak, PRECISION.HOUR_MM)} mm/h（已考虑风雨耦合），出现在 ` +
+          `${hhmm(ctx.fTime[comfort.effRainPeakIndex])}　·　${lv.tip}`
+        : '降水数据不可用，无法判断雨强',
+      foot,
+      cls: lv ? lv.cls : 'c-muted'
+    });
+  }
+
+  /* ② 48 小时有效降雨概率：与"降雨是否一致"共用同一把尺子（成员 48h 累计 > UNC_RAIN_MM） */
+  {
+    cards.push({
+      label: '48 小时降雨概率',
+      value: b.probOk ? fmtProb5(b.rainProb48) : '—',
+      unit: b.probOk ? '%' : '',
+      note: b.probOk
+        ? `${b.wet48.wet}/${b.wet48.usable} 个集合成员 48h 累计雨量 > ${UNC_RAIN_MM}mm`
+        : '集合成员数据不可用',
+      cls: !b.probOk ? 'c-muted'
+        : (b.rainProb48 >= 70 ? 'c-accent2' : (b.rainProb48 >= 35 ? 'c-warn' : 'c-ok'))
+    });
+  }
+
+  /* ③ 主要降雨时段：回答"什么时候下"。用的是结论区同一份 rainPeriods 结果（mainRainPeriod） */
+  {
+    const rp = mainRainPeriod(ctx);
+    let value, note, cls;
+    if (rp.main) {
+      value = rangeText(fTime[rp.main.i], plusOneHour(fTime[rp.main.j]));
+      note  = `这一段累计 ${fmtAccum(rp.main.total)} mm　本段最强 1 小时 ${fmt(rp.main.peak, PRECISION.HOUR_MM)} mm/h`;
+      cls   = 'c-accent2';
+    } else {
+      value = '无有效降雨时段';
+      cls   = 'c-muted';
+      note  = rp.laterFirst
+        ? `更晚的 ${rangeText(fTime[rp.laterFirst.i], plusOneHour(fTime[rp.laterFirst.j]))} 可能有零星小雨`
+        : '24 小时内三个模型都没预报出成片降雨';
+    }
+    cards.push({ label: '未来 24 小时主要降雨时段', value, note, cls });
+  }
+
+  /* ④ 气温与体感：主值给**气温区间**、副标题给**体感区间**并注明来源（用户指定）。
+     体感温度直接取接口的 apparent_temperature（三模型平均后在窗口内取区间），
+     不自己实现风寒 / 热指数公式 —— 自研公式会引入一套没人能验证的算法，
+     而接口返回的就是 Open-Meteo 的官方口径。
+
+     原来挂在这张卡上的两样东西搬进了第 3 层，一条信息都没丢：
+       体感档位名（舒适偏凉之类）→ 第 3 层「未来 24h 气温」卡的 note
+       天气现象                  → 第 3 层新增的「官方天气现象」卡
+     第一屏只留这张卡最该回答的东西：出门穿什么（气温区间）＋身上是什么感觉（体感区间）。 */
+  {
+    const tOk = numOrNull(b.tempMin) !== null && numOrNull(b.tempMax) !== null;
+    const fOk = comfort.feelsMin !== null && comfort.feelsMax !== null;
+    cards.push({
+      label: '气温与体感（24 小时）',
+      value: tOk ? `${fmtTemp(b.tempMin)}℃ ~ ${fmtTemp(b.tempMax)}℃` : '—',
+      note: fOk
+        ? `体感 ${fmtTemp(comfort.feelsMin)}℃ ~ ${fmtTemp(comfort.feelsMax)}℃` +
+          '　｜　由 Open-Meteo 提供'
+        : '体感温度数据不可用',
+      cls: (tOk || fOk) ? 'c-accent' : 'c-muted'
+    });
+  }
+
+  /* ⑤ 模型一致性：把"降雨是否一致 + 雨量分歧程度"合成一张（明细版仍在折叠区） */
+  {
+    const n = unc.rainCount, a = unc.avail;
+    let value, note, cls;
+    if (a === 0) {
+      value = '—'; note = '没有可用的模型数据'; cls = 'c-muted';
+    } else if (n === 0) {
+      value = '一致：都认为不下雨'; cls = 'c-ok';
+      note = `0/${a} 个模型 48h 雨量 > ${UNC_RAIN_MM}mm`;
+    } else if (n === a) {
+      value = '一致：雨会下';
+      cls = (unc.relDiv !== null && unc.relDiv < 20) ? 'c-ok' : 'c-warn';
+      note = unc.relDiv !== null
+        ? `雨量相对分歧 ${fmtDiv10(unc.relDiv)}%（${unc.divLevel.text}）`
+        : '只有一个模型有雨，量级无从比较';
+    } else {
+      value = '⚠️ 分歧：有的说下有的说不下'; cls = 'c-danger';
+      note = `${n}/${a} 个模型认为有雨，其余认为没有`;
+    }
+    cards.push({
+      label: `模型一致性（未来 ${unc.win} 小时）`,
+      /* 口径提示接在最后：这张卡与「降雨概率 / 雨量区间」不是同一个数据源，
+         不写明的话两组数字并排会被读成自相矛盾（见 CARD5_SCOPE_NOTE 的注释）。 */
+      value, note: note + availNote(unc) + '　·　' + CARD5_SCOPE_NOTE, cls
+    });
+  }
+
+  /* ⑥ 48 小时雨量区间：分位数取整到 1mm，回答"最坏能到多少" */
+  {
+    if (unc.ensOk) {
+      cards.push({
+        label: '48 小时雨量区间',
+        value: `${fmtQuant(unc.p10)}~${fmtQuant(unc.p90)}`,
+        unit: 'mm',
+        note: `集合 P10~P90，覆盖 80% 成员；中位数 ${fmtQuant(unc.p50)} mm`,
+        cls: 'c-accent2'
+      });
+    } else {
+      cards.push({
+        label: '48 小时雨量区间', value: '数据不足', cls: 'c-muted',
+        note: unc.ensCount
+          ? `只有 ${unc.ensCount} 个集合成员可用`
+          : (unc.ensMemberTotal ? '集合成员的雨量数据不可用' : '集合成员数据不可用')
+      });
+    }
+  }
+
+  return cards;
+}
+
+
+/* =======================================================================
+   十之二、第 3 层：详细数据折叠区（阶段二新增）
+   -----------------------------------------------------------------------
+   卡片由脚本创建、并把阶段一原有的四张卡片搬进来 —— 原因和 adviceCard 一样：
+   手写在 HTML 里的节点会被编辑器重新序列化时抹掉，脚本建才能保证每次都在。
+
+   展开状态存 localStorage（UI_STORE_KEY），刷新后保持。
+   折叠时容器宽度为 0，Chart.js 会在那儿画出变形的图，所以图表改成
+   "展开时才渲染"（见 renderCharts 里的 chartsPending）。
+   ======================================================================= */
+
+function loadUiState() {
+  try {
+    const o = JSON.parse(localStorage.getItem(UI_STORE_KEY) || 'null');
+    return (o && typeof o === 'object') ? o : {};
+  } catch (e) {
+    return {};      // 隐私模式 / 内容损坏 → 用默认值，绝不影响页面其余部分
+  }
+}
+
+function saveUiState(patch) {
+  try {
+    localStorage.setItem(UI_STORE_KEY, JSON.stringify(Object.assign(loadUiState(), patch)));
+  } catch (e) {}
+}
+
+function ensureDetailFold() {
+  let fold = document.getElementById('detailFold');
+  if (fold) return fold;
+
+  fold = document.createElement('details');
+  fold.id = 'detailFold';
+  fold.className = 'detail-fold';
+
+  const sum = document.createElement('summary');
+  sum.className = 'detail-summary';
+  sum.innerHTML =
+    '<span class="df-arrow" aria-hidden="true">▸</span>' +
+    '<span class="df-text">查看详细数据</span>' +
+    '<span class="df-hint">逐小时图表 · 多模型对比 · 集合分位 · 全量指标</span>';
+  fold.appendChild(sum);
+
+  const body = document.createElement('div');
+  body.className = 'detail-body';
+  fold.appendChild(body);
+
+  // 插在第 2 层（核心卡区）之后；找不到锚点就挂到主容器末尾，保证一定存在
+  const host = (kpiGrid && kpiGrid.parentNode) || document.querySelector('.wrap');
+  if (host && kpiGrid && kpiGrid.parentNode === host) host.insertBefore(fold, kpiGrid.nextSibling);
+  else if (host) host.appendChild(fold);
+
+  // 把阶段一原有的四张卡片搬进折叠区（appendChild 会自动把它们从原位置摘走）
+  ['overviewCard', 'modelCard', 'ensembleCard', 'conclusionCard'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) body.appendChild(el);
+  });
+
+  // 恢复上次的展开状态。放在注册监听之前设置：设置 open 会异步派发一次 toggle，
+  // 那一次没必要再写一遍状态。
+  fold.open = !!loadUiState().detailOpen;
+
+  fold.addEventListener('toggle', () => {
+    saveUiState({ detailOpen: fold.open });
+    if (fold.open && chartsPending && lastCtx) {
+      // 等浏览器完成布局再画，否则 canvas 量到的宽度还是 0
+      requestAnimationFrame(() => { if (lastCtx) renderCharts(lastCtx); });
+    }
+  });
+
+  return fold;
+}
+
+/**
+ * 渲染第 3 层明细区。
+ * 阶段一那 10 张卡的全部指标都在这里，只是按主题重新分了组；
+ * 外加阶段二新拿到的体感 / 阵风 / 能见度 / 雨与阵雨的构成。
+ */
+function renderDetail(ctx, unc, comfort, b) {
+  const body = document.querySelector('#detailFold .detail-body');
+  if (!body) return;
+
+  let card = document.getElementById('detailCard');
+  if (!card) {
+    card = document.createElement('section');
+    card.id = 'detailCard';
+    card.className = 'card';
+    const t = document.createElement('div');
+    t.className = 'card-title';
+    t.innerHTML = '<span>详细数据</span><span class="sub">全量指标与口径说明</span>';
+    card.appendChild(t);
+    const g = document.createElement('div');
+    g.id = 'detailGrid';
+    card.appendChild(g);
+    body.appendChild(card);
+  }
+  card.style.display = '';
+
+  /* ------- 组 1：长时效（集合口径），阶段一的"未来 7 天累计"在这里 -------
+     第一张是 2026-09-23 从第 2 层搬下来的：原来的「未来 24 小时降雨」核心卡
+     被「未来 24 小时降雨体感」取代，卡片里的 24h 累计 + 国标等级 + 成员区间
+     一条都没删，整卡落到这里。 */
+  const longCards = [
+    { label: '未来 24 小时累计（集合中位数）',
+      value: b.ensUsable ? fmtAccum(b.p50_24) : '—', unit: b.ensUsable ? 'mm' : '',
+      note: b.ensUsable
+        ? `${rainGrade24h(b.p50_24).name}（GB/T 28592-2012）　·　80% 成员落在 ` +
+          accumRangeText(b.p10_24, b.p90_24)
+        : '集合成员数据不可用',
+      cls: b.ensUsable ? rainGrade24h(b.p50_24).cls : 'c-muted' },
 
     { label: '未来 7 天累计（集合中位数）',
-      value: ensUsable ? fmt(p50_all) : '—', unit: ensUsable ? 'mm' : '',
-      note: ensUsable ? totalNote(p50_all) : '集合成员数据不可用',
-      cls: ensUsable ? totalClass(p50_all) : 'c-muted' }
+      value: b.ensUsable ? fmtAccum(b.p50_all) : '—', unit: b.ensUsable ? 'mm' : '',
+      note: b.ensUsable ? totalNote(b.p50_all) : '集合成员数据不可用',
+      cls: b.ensUsable ? totalClass(b.p50_all) : 'c-muted' },
+
+    { label: '未来 48 小时偏多情形（P90）',
+      value: b.ensUsable ? fmtQuant(b.p90_48) : '—', unit: b.ensUsable ? 'mm' : '',
+      note: b.ensUsable ? '90% 的集合成员不超过这个量' : '集合成员数据不可用',
+      cls: 'c-accent2' },
+
+    { label: '未来 7 天偏多情形（P90）',
+      value: b.ensUsable ? fmtQuant(b.p90_all) : '—', unit: b.ensUsable ? 'mm' : '',
+      note: b.ensUsable ? '90% 的集合成员不超过这个量' : '集合成员数据不可用',
+      cls: 'c-accent2' }
   ];
 
-  /* ---------- 第 4 组：环境 ---------- */
+  /* ------- 组 2：天气现象与降雨持续（2026-09-23 本阶段新增的两张卡） -------
+     两张卡都在回答"细节长什么样"，放在第 3 层，不占第一屏。 */
+  const phenoCards = [];
+
+  /* ① 官方天气现象：取 ECMWF 降水最多的那一小时的 weather_code（单源自洽） */
+  {
+    const ph = phenomenonOfMaxPrecip(ctx);
+    let value = '—', unit = '', note = '', cls = 'c-muted';
+
+    if (!ph.ok && ph.reason === 'no-precip') {
+      note = `${modelName(ph.source)} 未提供降水序列，无法定位最湿的一小时`;
+    } else if (!ph.ok) {
+      note = '该模型未提供天气代码';
+    } else if (!ph.isPhenomenon) {
+      /* 代码不在现象之列（0 晴 / 1 晴间多云 / 2 多云 / 3 阴）：
+         写「无降水现象」，绝不写"晴"（用户明确要求）。代码本身仍然如实带出来。 */
+      value = '未来 24h 无降水现象';
+      unit  = `（WMO code ${ph.code}）`;
+      note  = `最湿的一小时 ${hhmm(ph.time)}，该小时雨量 ` +
+              `${fmt(ph.amount, PRECISION.HOUR_MM)}mm`;
+    } else {
+      value = ph.info.text;
+      unit  = `（WMO code ${ph.code}）`;
+      note  = `出现在 ${hhmm(ph.time)}，该小时雨量 ${fmt(ph.amount, PRECISION.HOUR_MM)}mm`;
+      cls   = ph.info.cls;
+    }
+
+    /* 补充一行：window 内"最严重的一档"（weatherCodeIn 的口径）与上面按"最湿一小时"
+       挑出来的不同时，把差异如实说出来 —— 否则 computeComfort 里那份计算就成了
+       只算不显示的死代码，而两份不同口径的数字日后很容易被误当成 bug。
+       只有它本身确实是个现象时才提（否则会出现"最严重的一档是「晴」"这种噪音）。 */
+    const foot = [WMO_CODE_SOURCE_TAG + '　·　' +
+      FIELD_POLICY.WEATHER_CODE_SCOPE_TPL.replace('{model}', modelName(ph.source))];
+    if (ph.ok && comfort.wcInfo && isPhenomenon(comfort.wc.code) &&
+        comfort.wcInfo.text !== ph.info.text) {
+      foot.push(`窗口内"最严重的一档"是「${comfort.wcInfo.text}」` +
+        `（按严重度挑，与上面按最湿一小时挑出的不同）`);
+    }
+
+    phenoCards.push({
+      label: '官方天气现象（24 小时）',
+      value, unit, note, foot, cls
+    });
+  }
+
+  /* ② 最长连续强降雨：统计小时雨强 ≥ HEAVY_HOUR_MM 的连续段（用户指定口径） */
+  {
+    const hr = longestHeavyRun(ctx);
+    let value, note, foot = [], cls;
+    if (!hr.main) {
+      value = '未来 24h 无强降雨';
+      cls   = 'c-muted';
+      note  = `未来 ${hr.WIN} 小时的小时雨强都没达到 ${HEAVY_HOUR_MM} mm/h`;
+    } else {
+      const seg  = `${hhmm(hr.fTime[hr.main.i])} ~ ${hhmm(plusOneHour(hr.fTime[hr.main.j]))}`;
+      const live = hr.ongoing ? '（正在持续）' : '';
+      cls = 'c-warn';
+      if (hr.runs.length === 1) {
+        /* 只有一段：措辞里不出现"连续"两字 —— 只有 1 小时时"连续 1 小时"是废话 */
+        value = hr.main.hours === 1 ? '1 小时' : `持续 ${hr.main.hours} 小时`;
+        note  = `${seg} 连续降雨${live}`;
+      } else {
+        value = `最长连续 ${hr.main.hours} 小时`;
+        note  = `${seg} ｜ 共 ${hr.runs.length} 段，累计 ${hr.totalHours} 小时${live}`;
+        foot  = [`另有 ${hr.others.length} 段 ${heavyOthersText(hr.others, hr.fTime)}`];
+      }
+    }
+    phenoCards.push({ label: '最长连续强降雨（24 小时）', value, note, foot, cls });
+  }
+
+  /* ------- 组 3：环境与体感（阶段一的 3 张环境卡 + 阶段二新增的阵风 / 能见度） ------- */
   const envCards = [
-    { label: '未来 24h 气温', value: tempValue, unit: '℃', note: tempNote, cls: 'c-accent' },
+    { label: '未来 24h 气温', value: b.tempValue, unit: '℃',
+      /* 第 2 层的气温卡让位给了"气温区间 + 体感区间"，体感档位（舒适偏凉之类）
+         落到这里继续显示 —— 信息一条都不丢。 */
+      note: b.tempNote + (comfort.feelsLv
+        ? `　·　体感${comfort.feelsLv.name}（${comfort.feelsLv.tip}）` : ''),
+      cls: 'c-accent' },
 
-    { label: `未来 ${fHours}h 最大风速`, value: windValue, unit: 'km/h', note: windNote, cls: 'c-accent' },
+    { label: `未来 ${ctx.fHours}h 最大风速`, value: b.windValue, unit: 'km/h', note: b.windNote, cls: 'c-accent' },
 
-    { label: '未来 24h 云量', value: String(Math.round(cloudAvg)), unit: '%',
-      note: skyText(cloudAvg), cls: 'c-accent2' }
+    { label: '未来 24h 云量',
+      value: b.cloudOk ? String(Math.round(b.cloudAvg)) : '—',
+      unit: b.cloudOk ? '%' : '',
+      note: b.cloudOk ? skyText(b.cloudAvg) : '云量数据不可用', cls: 'c-accent2' },
+
+    { label: '未来 24h 最大阵风',
+      value: comfort.gustPeak === null ? '—' : fmt(comfort.gustPeak, 1),
+      unit: comfort.gustPeak === null ? '' : 'km/h',
+      note: comfort.gustLv ? comfort.gustLv.name + '，' + comfort.gustLv.tip : '阵风数据不可用',
+      cls: comfort.gustLv ? comfort.gustLv.cls : 'c-muted' },
+
+    { label: '未来 24h 最低能见度',
+      value: comfort.visMin === null ? '—' : String(Math.round(comfort.visMin)),
+      unit: comfort.visMin === null ? '' : 'm',
+      // 如实说明"这是谁提供的数据"：三家模型里只有 GFS 有能见度，写成一个"平均"就是骗人
+      // 前面加上【经验值】档位：最低能见度决定"看不清到什么程度"，光给米数读不出严重程度
+      note: comfort.visMin === null
+        ? `没有模型提供此要素（0/${comfort.visCover.total}）`
+        : (comfort.visLv ? `${comfort.visLv.name}（${comfort.visLv.tip}）　·　` : '') +
+          `仅 ${modelName(comfort.visSource)} 提供（${comfort.visCover.keys.length}/${comfort.visCover.total} 个模型有值）`,
+      cls: comfort.visMin === null ? 'c-muted' : (comfort.visLv ? comfort.visLv.cls : 'c-accent2') }
   ];
 
-  /* ---------- 按 核心数字 → 不确定性 → 环境 三组渲染 ---------- */
+  /* ------- 组 4：降雨构成（阶段二新探测的 rain / showers 字段） ------- */
+  const compCards = [];
+  (ctx.models || []).forEach(m => {
+    const segSum = field => {
+      const arr = ctx.modelSeries[m] && ctx.modelSeries[m][field];
+      return arr ? sumSeg(arr.slice(ctx.fStart, ctx.fStart + Math.min(24, ctx.fHours))) : null;
+    };
+    const rain = segSum('rain'), showers = segSum('showers');
+    const noSplit = FIELD_POLICY.NO_SHOWER_SPLIT.indexOf(m) >= 0;
+    compCards.push({
+      label: modelName(m) + '｜24h 雨 / 阵雨',
+      value: fmtAccum(rain) + ' / ' + fmtAccum(showers),
+      unit: 'mm',
+      note: noSplit
+        ? '该模型不区分雨与阵雨：阵雨列恒为 0，降水量全部计入「雨」'
+        : '雨 + 阵雨 = 总降水量',
+      cls: 'c-accent2'
+    });
+  });
+  if (compCards.length) {
+    const names = FIELD_POLICY.NO_SHOWER_SPLIT.map(modelName).join('、');
+    compCards.unshift({
+      label: '口径说明',
+      value: names || '—',
+      unit: names ? '不区分雨与阵雨' : '',
+      note: 'Open-Meteo 的 precipitation = rain + showers；' +
+            '不提供拆分的模式只给总量，其阵雨列恒为 0（不是"真的没下阵雨"）',
+      cls: 'c-muted'
+    });
+  }
+
+  /* ------- 组 5：数据口径（可用模型、集合成员规模） ------- */
+  const metaCards = [
+    { label: '集合成员（48h 可算出总量）',
+      value: unc.ensCount ? String(unc.ensCount) : '—',
+      unit: unc.ensCount ? '个' : '',
+      note: unc.ensMemberTotal ? `接口共返回 ${unc.ensMemberTotal} 个成员` : '集合成员数据不可用',
+      cls: 'c-accent2' },
+
+    { label: '可用模型', value: `${unc.avail}/${unc.totalWant}`, unit: '个',
+      note: (ctx.models || []).map(modelName).join(' / ') || '没有可用的模型数据',
+      cls: unc.avail < unc.totalWant ? 'c-warn' : 'c-ok' }
+  ];
+
+  /* ------- 组 2：不确定性明细（阶段一那 4 张卡，一张没删，只把数字改成取整口径） ------- */
   const uncNote = `未来 ${unc.win} 小时 · 有雨阈值 ${UNC_RAIN_MM}mm` +
     (unc.short ? `（预报仅覆盖 ${unc.win} 小时）` : '') +
     (unc.avail < unc.totalWant ? ` ｜ ${unc.avail}/${unc.totalWant} 个模型可用` : '');
 
-  kpiGrid.className = 'kpi-groups';   // 容器不再自己排网格，网格交给每组里的 .kpi-grid
-  kpiGrid.innerHTML =
-    kpiGroupHtml('核心数字', '', coreCards) +
-    kpiGroupHtml('不确定性', uncNote, uncertaintyCards(unc)) +
-    kpiGroupHtml('环境', '', envCards);
+  const grid = document.getElementById('detailGrid');
+  if (grid) {
+    grid.innerHTML =
+      kpiGroupHtml('长时效（集合口径）', '', longCards) +
+      kpiGroupHtml('天气现象与降雨持续',
+        `未来 24 小时 · 均为本阶段新增`, phenoCards) +
+      kpiGroupHtml('不确定性明细', uncNote, uncertaintyCards(unc)) +
+      kpiGroupHtml('环境与体感', `未来 24 小时 · 阵风与能见度为本阶段新增`, envCards) +
+      kpiGroupHtml('降雨构成（雨 / 阵雨）', `未来 24 小时累计 · rain / showers`, compCards) +
+      kpiGroupHtml('数据口径', '', metaCards);
+  }
 }
 
 /** 一个卡片分组：小标题 + 自适应网格 */
@@ -1857,14 +3746,21 @@ function kpiGroupHtml(title, note, cards) {
     '</div>';
 }
 
-/** 单张数据卡 */
+/** 单张数据卡
+ *  foot 是可选的"卡片底部小字"（可以给多行）：
+ *  阶段二·体感体系的几张卡要在数字之外补一行对照、一行口径说明
+ *  （降雨体感的"国标等级"对照、官方天气现象的来源标注），
+ *  note 那行已经承载主要解释了，再往 note 里堆会让两种信息混成一段。
+ *  foot 只能由常量生成，不接受第三方文本，所以照旧直接拼进 HTML。 */
 function kpiCardHtml(c) {
+  const foot = (c.foot || []).filter(Boolean)
+    .map(line => '<div class="k-foot">' + line + '</div>').join('');
   return '<div class="kpi">' +
       '<div class="k-label">' + c.label + '</div>' +
       '<div class="k-value ' + (c.cls || '') + '">' + c.value +
         (c.unit ? '<span class="unit">' + c.unit + '</span>' : '') +
       '</div>' +
-      '<div class="k-note">' + c.note + '</div>' +
+      '<div class="k-note">' + c.note + '</div>' + foot +
     '</div>';
 }
 
@@ -1890,8 +3786,13 @@ function ensureAdviceCard() {
   why.id = 'adviceWhy';
   why.className = 'adv-why';
 
+  const foot = document.createElement('div');
+  foot.id = 'adviceFoot';
+  foot.className = 'adv-foot';
+
   card.appendChild(main);
   card.appendChild(why);
+  card.appendChild(foot);
 
   // 插在数据卡片区最上方；找不到锚点就挂到主容器末尾，保证一定存在
   if (kpiGrid && kpiGrid.parentNode) kpiGrid.parentNode.insertBefore(card, kpiGrid);
@@ -1902,19 +3803,240 @@ function ensureAdviceCard() {
   return card;
 }
 
-/** 渲染综合建议（颜色随结论变化） */
-function renderAdvice(unc) {
+/** 渲染综合建议（颜色随结论变化；含阶段三的淋湿风险 + 免责脚注） */
+function renderAdvice(unc, comfort, prefs) {
   const card = ensureAdviceCard();
   if (!card) return;
 
-  const advice = buildAdvice(unc);
+  const advice = buildAdvice(unc, comfort, prefs);
   const main = document.getElementById('adviceMain');
   const why  = document.getElementById('adviceWhy');
   if (main) main.textContent = advice.text;
   if (why)  why.textContent  = advice.why;
 
+  /* 涉及淋湿风险时，底部挂统一免责声明（其余卡片见 renderAlerts / renderScoreSection）。
+     没有雨（也就没有淋湿风险）时不挂 —— 一句"体感与评分"的免责配"都认为不下雨"会很突兀。 */
+  const foot = document.getElementById('adviceFoot');
+  if (foot) {
+    const eff = comfort && numOrNull(comfort.effRainPeak);
+    foot.textContent = (eff !== null && eff > 0) ? DISCLAIMER_NOTE : '';
+  }
+
   card.className = 'card advice-card ' + advice.cls;
   card.style.display = '';
+}
+
+/**
+ * 条件提示条：夹在第 1 层（一句话建议）与第 2 层（6 张核心卡）之间。
+ * 与 adviceCard 一样由脚本创建 —— 手写节点会被编辑器重新序列化时抹掉。
+ * 默认 display:none：一条都不满足时它完全不占空间（用户明确要求）。
+ */
+function ensureAlertBar() {
+  let bar = document.getElementById('alertBar');
+  if (bar) return bar;
+
+  bar = document.createElement('div');
+  bar.id = 'alertBar';
+  bar.className = 'alert-bar';
+  bar.style.display = 'none';
+
+  // 插在第 2 层前面；找不到锚点就挂到主容器末尾，保证一定存在
+  if (kpiGrid && kpiGrid.parentNode) kpiGrid.parentNode.insertBefore(bar, kpiGrid);
+  else {
+    const wrap = document.querySelector('.wrap');
+    if (wrap) wrap.appendChild(bar);
+  }
+  return bar;
+}
+
+/**
+ * 渲染条件提示条。
+ * 规则、阈值、优先级全在文件顶部的 ALERT_RULES / ALERT_THRESHOLD 里，这里只负责排版：
+ *   命中的按 prio 排序取前 3 条 → 横排成胶囊
+ *   被挤掉的条数不静默丢弃，压成一行小尾巴「（还有 N 项，详见下方数据）」
+ *   一条都没有 → 清空并隐藏，不留空白、不写"无提示"之类的占位
+ * 文案与 title 里的阈值说明都来自常量，没有第三方文本，所以直接拼进 HTML。
+ */
+function renderAlerts(comfort, prefs) {
+  const bar = ensureAlertBar();
+  if (!bar) return;
+
+  const a = computeAlerts(comfort, prefs);
+  if (!a.items.length) {
+    bar.innerHTML = '';
+    bar.style.display = 'none';
+    return;
+  }
+
+  bar.innerHTML = a.items.map(it =>
+      '<span class="alert-chip ' + it.cls + '" title="' + it.at + '">' + it.text + '</span>'
+    ).join('') +
+    (a.more
+      ? '<span class="alert-more">（还有 ' + a.more + ' 项，详见下方数据）</span>'
+      : '') +
+    '<span class="alert-disclaimer">' + DISCLAIMER_NOTE + '</span>';
+  bar.style.display = '';
+}
+
+/* =========================================================================
+   十之三、综合评分（折叠区顶部）与「我的偏好」（阶段三新增）
+   -------------------------------------------------------------------------
+   评分卡与偏好卡都是脚本创建（同 adviceCard，防编辑器重序列化抹掉），
+   插在折叠区 detail-body 的最顶部 —— 先看"今天有多难受"，再决定要不要勾偏好。
+   评分条形图用纯 CSS（div + width），不依赖 Chart.js：
+   它要在折叠区顶部、且偏好改动时要即时重算，用 Chart.js 反而多一层销毁/重建。
+   ========================================================================= */
+
+/** 评分卡：插在折叠区 detail-body 最顶部 */
+function ensureScoreSection() {
+  let sec = document.getElementById('scoreCard');
+  if (sec) return sec;
+
+  sec = document.createElement('section');
+  sec.id = 'scoreCard';
+  sec.className = 'card score-card';
+
+  const title = document.createElement('div');
+  title.className = 'card-title';
+  title.innerHTML = '<span>综合体感分</span><span class="sub">0~100 分，越高越难受</span>';
+  sec.appendChild(title);
+
+  const body = document.createElement('div');
+  body.id = 'scoreBody';
+  body.className = 'score-body';
+  sec.appendChild(body);
+
+  const host = document.querySelector('#detailFold .detail-body');
+  if (host) host.insertBefore(sec, host.firstChild);
+
+  return sec;
+}
+
+/** 一条分项分（名字 + 条形图 + 数值）；缺数据 → 「—」且条形为 0 */
+function scoreRowHtml(name, score, cls) {
+  const n = numOrNull(score);
+  const val = n === null ? '—' : String(Math.round(n));
+  const w = n === null ? 0 : Math.min(100, Math.max(0, n));
+  return '<div class="score-row">' +
+    '<span class="score-name">' + name + '</span>' +
+    '<span class="score-bar"><span class="score-fill ' + (cls || '') + '" style="width:' + w + '%"></span></span>' +
+    '<span class="score-val">' + val + '</span>' +
+  '</div>';
+}
+
+/** 渲染评分卡：4 条分项分 + 总分条形 + 权重说明 + 两行免责（自定义权重 / 统一免责） */
+function renderScoreSection(comfort, scores, prefs) {
+  const sec = ensureScoreSection();
+  if (!sec) return;
+  const body = document.getElementById('scoreBody');
+  if (!body) return;
+  const p = prefs || {};
+
+  const rows = [
+    scoreRowHtml('降雨不适', scores.rain, 'c-accent2'),
+    scoreRowHtml('风力影响', scores.wind, 'c-accent'),
+    scoreRowHtml('温度不适', scores.temp, 'c-warn'),
+    scoreRowHtml('能见度',   scores.vis,  'c-ok')
+  ].join('');
+
+  const totalN = numOrNull(scores.total) === null ? '—' : String(Math.round(scores.total));
+  const totalW = numOrNull(scores.total) === null ? 0 : Math.min(100, Math.max(0, scores.total));
+
+  const boostNotes = [];
+  if (scores.hasRain) boostNotes.push('有雨时风力权重 ×1.5');
+  if (p.bike)        boostNotes.push('会骑车：风力权重 ×1.5');
+  if (p.cold)        boostNotes.push('怕冷：温度权重 ×1.5');
+  const missingNote = scores.missing.length
+    ? '<div class="score-missing">未计入：' + scores.missing.join('、') + '（数据缺失）</div>'
+    : '';
+
+  body.innerHTML =
+    rows +
+    '<div class="score-total">' +
+      '<span class="score-name">综合评分</span>' +
+      '<span class="score-bar total"><span class="score-fill c-total" style="width:' + totalW + '%"></span></span>' +
+      '<span class="score-val">' + totalN + '</span>' +
+    '</div>' +
+    '<div class="score-note">权重：降雨 40% ｜ 风 25% ｜ 温度 25% ｜ 能见度 10%' +
+      (boostNotes.length ? '　·　' + boostNotes.join('　·　') : '') + '</div>' +
+    '<div class="score-custom">' + SCORE_CUSTOM_NOTE + '</div>' +
+    missingNote +
+    '<div class="score-disclaimer">' + DISCLAIMER_NOTE + '</div>';
+}
+
+/** 我的偏好卡：3 个勾选框，状态存 localStorage，改动即重渲染 */
+function ensurePrefSection() {
+  let sec = document.getElementById('prefCard');
+  if (sec) return sec;
+
+  sec = document.createElement('section');
+  sec.id = 'prefCard';
+  sec.className = 'card pref-card';
+
+  const title = document.createElement('div');
+  title.className = 'card-title';
+  title.innerHTML = '<span>我的偏好</span><span class="sub">勾选后评分与文案立即更新</span>';
+  sec.appendChild(title);
+
+  const body = document.createElement('div');
+  body.className = 'pref-body';
+  sec.appendChild(body);
+
+  PREF_DEFS.forEach(d => {
+    const label = document.createElement('label');
+    label.className = 'pref-item';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.id = 'pref-' + d.key;
+    cb.dataset.prefKey = d.key;
+    const box = document.createElement('span');
+    box.className = 'pref-label';
+    box.textContent = d.label;
+    const hint = document.createElement('span');
+    hint.className = 'pref-hint';
+    hint.textContent = d.hint;
+    label.appendChild(cb);
+    label.appendChild(box);
+    label.appendChild(hint);
+    body.appendChild(label);
+    cb.addEventListener('change', onPrefChange);
+  });
+
+  /* 插在评分卡之后；找不到评分卡就插到折叠区顶部 */
+  const host = document.querySelector('#detailFold .detail-body');
+  if (host) {
+    const score = document.getElementById('scoreCard');
+    if (score && score.parentNode === host) host.insertBefore(sec, score.nextSibling);
+    else host.insertBefore(sec, host.firstChild);
+  }
+
+  return sec;
+}
+
+function readPrefsFromDOM() {
+  const p = {};
+  PREF_DEFS.forEach(d => {
+    const cb = document.getElementById('pref-' + d.key);
+    p[d.key] = !!cb && cb.checked;
+  });
+  return p;
+}
+
+/** 同步勾选框到存储状态（每次重渲染后不丢勾选） */
+function renderPrefSection(prefs) {
+  const sec = ensurePrefSection();
+  if (!sec) return;
+  const p = prefs || loadPrefs();
+  PREF_DEFS.forEach(d => {
+    const cb = document.getElementById('pref-' + d.key);
+    if (cb) cb.checked = !!p[d.key];
+  });
+}
+
+/** 勾选框改动：存偏好 → 用缓存里的 ctx 重渲染（不重新请求接口、不消耗配额） */
+function onPrefChange() {
+  savePrefs(readPrefsFromDOM());
+  if (lastCtx) renderKpis(lastCtx);
 }
 
 /** 7 天累计雨量的分级文案 */
@@ -2121,7 +4243,7 @@ function renderOverviewChart(ctx) {
           const last6 = precipData.slice(Math.max(0, k - 5), k + 1);
           const p6    = sum(last6.map(x => Number(x) || 0));
           return [
-            v >= 0.1 ? '本小时有降雨' : '本小时基本无雨',
+            v >= HOUR_RAIN_MM ? '本小时有降雨' : '本小时基本无雨',
             `近 6 小时（含本时）累计：${fmt(p6, 2)} mm`
           ];
         }
@@ -2216,6 +4338,15 @@ function renderEnsembleChart(ctx) {
   const { ens, eStart, stats } = ctx;
   const total = ens.time.length;
 
+  /* 集合接口没取到 / 返回里没有成员字段时，**整张图直接不显示**：
+     没有成员线可画，硬画出来只是一张空坐标系（横轴还会退化成 "undefined/undefined undefined时"）。
+     缺口由状态栏的「N/M 个接口可用」和各卡片里的「集合成员数据不可用」交代，不在这里重复。 */
+  if (!ens.members.length || !total) {
+    resetChart(charts.ensemble, ensembleCard);
+    ensembleCard.style.display = 'none';
+    return;
+  }
+
   // 时间范围与图 1 / 图 2 共用；集合时间轴有 7 天，所以按窗口裁剪到 [eStart, eStart + eff)
   const avail = Math.max(1, total - eStart);
   const eff   = Math.max(1, Math.min(currentRange, avail));
@@ -2286,12 +4417,14 @@ function renderEnsembleChart(ctx) {
       // 窗口内的 dataIndex 要换算回集合时间轴的原始下标
       const i    = eStart + items[0].dataIndex;
       const vals = ens.members.map(m => Number(m[i]) || 0);
-      const wet  = vals.filter(v => v >= 0.1).length;
+      // 只看"这一个小时"，与 48h 累计口径无关，所以措辞必须写清是"这一小时"，
+      // 免得和「48h 有效降雨概率」（成员 48h 累计 >0.5mm）混成一回事
+      const raining = vals.filter(v => v >= HOUR_RAIN_MM).length;
       return [
         `10% 分位（偏少）：${fmt(stats.p10[i], 2)} mm`,
         `90% 分位（偏多）：${fmt(stats.p90[i], 2)} mm`,
         `集合均值：${fmt(stats.mean[i], 2)} mm ｜ 成员最大：${fmt(stats.max[i], 2)} mm`,
-        `预报有雨的成员：${wet}/${vals.length}（${Math.round(wet / (vals.length || 1) * 100)}%）`
+        `这一小时降水量 ≥ ${HOUR_RAIN_MM}mm 的成员：${raining}/${vals.length}（${Math.round(raining / (vals.length || 1) * 100)}%）`
       ];
     }
   });
@@ -2308,11 +4441,19 @@ function renderEnsembleChart(ctx) {
    -----------------------------------------------------------------------
    四个关键指标统一取"预报接口的多模型平均"，口径一致才能互相对照：
      ① 未来 24 小时总降水量   ② 最大小时雨强（含出现时刻）
-     ③ 降水概率峰值（含出现时刻） ④ 主要降雨时段（>0.1mm 的连续小时合并）
+     ③ 降水概率峰值（含出现时刻） ④ 主要降雨时段（小时雨强 > HOUR_RAIN_MM 的连续小时合并）
    带伞建议与模式一致性按固定阈值判定（阈值写在 renderConclusion 里）：
      · 概率峰值 > 50% 或 24h 总降水 > 1mm  → 建议带伞
      · 最大小时雨强 > 5mm                  → 追加"可能有短时强降水，注意"
      · 三个模型 24h 雨量的 max ÷ min > 3    → 提示模式分歧较大
+
+   注意：下面几处出现的 0.5 是"要不要说这句话"的措辞门槛，不是"有雨"判据 ——
+   它们是不同窗口/不同维度（单小时雨强 ≥0.5、7 天 90 分位 >0.5、7 天累计 ≥0.5 才谈雨雪），
+   与 UNC_RAIN_MM（48 小时累计 >0.5mm，全页唯一的"有雨"定义）不是一回事，
+   所以故意不复用同一个常量，免得两边一起被改错。
+
+   本区里所有"某一个小时算不算在下雨"的判断，统一用 HOUR_RAIN_MM（0.1mm/h）；
+   下面同样写着 0.1 的几处（7 天累计、24 小时累计）是累计量口径，不要和它合并。
    ======================================================================= */
 
 /** "2026-09-24T03:00" → "9/24 03时"（写法与图表的横轴标签保持一致） */
@@ -2355,7 +4496,7 @@ function windowStats(series, start, count) {
 /** 把 series 中 > threshold（严格大于）的"连续小时"合并成降雨时段
  *  返回 [{i, j, total, peak}]，i / j 为时间轴下标（含两端）
  *  比较时统一先 round2，并留 1e-9 容差，避免浮点尾巴把"刚好等于阈值"的小时算进来 */
-function rainPeriods(series, start, count, threshold = 0.1) {
+function rainPeriods(series, start, count, threshold = HOUR_RAIN_MM) {
   const out = [];
   const arr = series || [];
   let cur = null;
@@ -2399,23 +4540,25 @@ function renderConclusion(ctx) {
   const peakProb     = Math.round(wq.peak);                             // ③ 降水概率峰值
   const peakProbTime = wq.peakIdx >= 0 ? fTime[wq.peakIdx] : null;
 
-  /* ④ 主要降雨时段：>0.1mm 的连续小时合并后，取累计雨量最大的一段（并列时取更长的一段） */
-  const periods = rainPeriods(avgPrecip, fStart, WIN, 0.1)
-    .sort((a, b) => (b.total - a.total) || ((b.j - b.i) - (a.j - a.i)));
-  const main = periods.length ? periods[0] : null;
+  /* ④ 主要降雨时段：小时雨强 > HOUR_RAIN_MM 的连续小时合并后，取累计雨量最大的一段（并列时取更长的一段）
+     阶段二把这段提取成了 mainRainPeriod()，好让第 2 层核心卡复用同一份结果；
+     算法与原实现完全一致（同一个函数、同一个排序、同一个门槛），没有改动任何判定。 */
+  const rp      = mainRainPeriod(ctx);
+  const periods = rp.periods;
+  const main    = rp.main;
 
   let periodText, periodSub;
   if (main) {
     periodText = rangeText(fTime[main.i], plusOneHour(fTime[main.j]));
     periodSub  = periods.length > 1
-      ? `24 小时内有 ${periods.length} 段间歇降雨，这是雨量最大的一段（约 ${fmt(main.total)} 毫米）`
-      : `连续降雨累计约 ${fmt(main.total)} 毫米`;
+      ? `24 小时内有 ${periods.length} 段间歇降雨，这是雨量最大的一段（约 ${fmtAccum(main.total)} 毫米）`
+      : `连续降雨累计约 ${fmtAccum(main.total)} 毫米`;
   } else {
     periodText = '无有效降雨时段';
     // 24 小时内没有，就往后看看还有没有零星降雨，避免只回一句"没有"太单薄
-    const later = rainPeriods(avgPrecip, fStart + WIN, Math.max(0, fHours - WIN), 0.1);
-    periodSub = later.length
-      ? `更晚的 ${rangeText(fTime[later[0].i], plusOneHour(fTime[later[0].j]))} 可能有零星小雨`
+    const later = rp.laterFirst;
+    periodSub = later
+      ? `更晚的 ${rangeText(fTime[later.i], plusOneHour(fTime[later.j]))} 可能有零星小雨`
       : '24 小时内三个模型都没预报出成片降雨';
   }
 
@@ -2429,36 +4572,39 @@ function renderConclusion(ctx) {
 
   // 把判定依据摆出来，用户能自己核对结论是否正确
   const reasons = [];
-  if (peakProb > 50) reasons.push(`概率峰值 ${peakProb}%`);
-  if (total24 > 1)   reasons.push(`累计雨量 ${fmt(total24)} 毫米`);
-  if (heavyRain)     reasons.push(`最大雨强 ${fmt(maxIntensity)} 毫米/小时`);
+  if (peakProb > 50) reasons.push(`概率峰值 ${fmtProb5(peakProb)}%`);
+  if (total24 > 1)   reasons.push(`累计雨量 ${fmtAccum(total24)} 毫米`);
+  if (heavyRain)     reasons.push(`最大雨强 ${fmt(maxIntensity, PRECISION.HOUR_MM)} 毫米/小时`);
   const uNote = reasons.length ? reasons.join(' ｜ ') : '未来 24 小时无明显降水信号';
 
-  /* ---------- 主结论句 ---------- */
+  /* ---------- 主结论句 ----------
+     档位判断用的还是原来的 total24 原值（阈值一个没动），
+     只是显示出来的数字统一走 fmtAccum（整数毫米）——
+     不足 1 毫米时写"不足 1 毫米"，而不是取整成 "约 0 毫米"。 */
   let verdict;
   if (total24 < 0.1)       verdict = `未来 24 小时该地点<b>基本没有有效降雨</b>`;
-  else if (total24 < 1)    verdict = `未来 24 小时该地点<b>降雨很弱，约 ${fmt(total24)} 毫米</b>`;
-  else if (total24 < 10)   verdict = `未来 24 小时该地点<b>预计降雨约 ${fmt(total24)} 毫米</b>`;
-  else if (total24 < 25)   verdict = `未来 24 小时该地点<b>降雨明显，约 ${fmt(total24)} 毫米</b>`;
-  else                     verdict = `未来 24 小时该地点<b>雨量较大，约 ${fmt(total24)} 毫米</b>`;
+  else if (total24 < 1)    verdict = `未来 24 小时该地点<b>降雨很弱，不足 1 毫米</b>`;
+  else if (total24 < 10)   verdict = `未来 24 小时该地点<b>预计降雨约 ${fmtAccum(total24)} 毫米</b>`;
+  else if (total24 < 25)   verdict = `未来 24 小时该地点<b>降雨明显，约 ${fmtAccum(total24)} 毫米</b>`;
+  else                     verdict = `未来 24 小时该地点<b>雨量较大，约 ${fmtAccum(total24)} 毫米</b>`;
 
   if (main) verdict += `，主要集中在 ${rangeText(fTime[main.i], plusOneHour(fTime[main.j]))}`;
   verdict += '。';
   if (maxIntTime && maxIntensity >= 0.5) {
-    verdict += ` 最强的一小时出现在 ${hourText(maxIntTime)}前后，雨强约 ${fmt(maxIntensity)} 毫米/小时。`;
+    verdict += ` 最强的一小时出现在 ${hourText(maxIntTime)}前后，雨强约 ${fmt(maxIntensity, PRECISION.HOUR_MM)} 毫米/小时。`;
   }
   verdictBox.innerHTML = verdict;
 
   /* ---------- 四项关键指标 ---------- */
   conclusionSub.textContent = WIN >= 24 ? '未来 24 小时' : `未来 ${WIN} 小时`;
   conclusionGrid.innerHTML = [
-    metricCard('未来 24 小时总降水量', fmt(total24), '毫米',
+    metricCard('未来 24 小时总降水量', fmtAccum(total24), '毫米',
                total24 >= 1 ? 'c-accent' : 'c-ok',
                total24 < 0.1 ? '低于 0.1 毫米，可视为无雨' : totalNote(total24)),
-    metricCard('最大小时雨强', fmt(maxIntensity), '毫米/小时',
+    metricCard('最大小时雨强', fmt(maxIntensity, PRECISION.HOUR_MM), '毫米/小时',
                maxIntensity > 5 ? 'c-danger' : (maxIntensity > 1 ? 'c-warn' : 'c-accent'),
                maxIntTime ? `出现在 ${hourText(maxIntTime)}` : '窗口内无降水'),
-    metricCard('降水概率峰值', String(peakProb), '%',
+    metricCard('降水概率峰值', fmtProb5(peakProb), '%',
                peakProb > 50 ? 'c-warn' : 'c-accent',
                peakProbTime ? `出现在 ${hourText(peakProbTime)}` : '—'),
     metricCard('主要降雨时段', periodText, '', 'c-accent2', periodSub)
@@ -2478,7 +4624,7 @@ function renderConclusion(ctx) {
   // 最小值可能正好是 0（某个模型认为完全不下雨），这时比值趋于无穷，用 Infinity 表示
   const ratio  = mn > 0 ? mx / mn : (mx > 0 ? Infinity : 1);
   const detail = models.map((m, i) =>
-    `${MODEL_META[m] ? MODEL_META[m].name : m} ${fmt(perModel24[i])}`).join(' / ');
+    `${modelName(m)} ${fmtAccum(perModel24[i])}`).join(' / ');
 
   const ratioText = Number.isFinite(ratio) ? fmt(ratio) + ' 倍' : '极大';
 
@@ -2514,12 +4660,9 @@ function renderConclusion(ctx) {
   const p90_all = sum(stats.p90.slice(eStart));
   const p90_48  = sum(stats.p90.slice(eStart, eStart + 48));
 
-  // 集合成员里"预报有雨"的比例：某个成员只要 48h 内出现过 ≥0.5mm 的小时就算有雨
-  let wet48 = 0;
-  ens.members.forEach(m => {
-    if (m.slice(eStart, eStart + 48).some(v => (Number(v) || 0) >= 0.5)) wet48++;
-  });
-  const prob48 = ens.members.length ? Math.round(wet48 / ens.members.length * 100) : 0;
+  // 集合口径的"有雨"比例：与卡片 1 同一把尺子（成员 48h 累计雨量 > UNC_RAIN_MM）
+  const wetStats = wetMemberStats(ens, eStart);
+  const prob48 = wetStats.prob === null ? null : Math.round(wetStats.prob);
 
   // 气温（用来判断下的是雨还是雪）
   const temps = models.map(m => modelSeries[m].temperature_2m).filter(Boolean);
@@ -2535,31 +4678,33 @@ function renderConclusion(ctx) {
   advice.push({
     text: total7 < 0.1
       ? '把眼光拉长到 7 天：集合预报的中位数显示依然没有有效降雨，可以放心安排户外计划。'
-      : `把眼光拉长到 7 天：集合预报的中位数累计雨量约 ${fmt(total7)} 毫米，${totalNote(total7)}。`,
+      : `把眼光拉长到 7 天：集合预报的中位数累计雨量约 ${fmtAccum(total7)} 毫米，${totalNote(total7)}。`,
     cls: ''
   });
 
-  // 2) 集合概率怎么读
-  if (prob48 >= 85) {
-    advice.push({ text: `未来 48 小时内 ${prob48}% 的集合成员预报有雨，降雨基本确定，请提前安排行程。`, cls: '' });
+  // 2) 集合概率怎么读（判据、阈值、用词都与卡片 1 对齐）
+  if (prob48 === null) {
+    advice.push({ text: '集合成员数据不可用，无法给出未来 48 小时的降雨概率。', cls: '' });
+  } else if (prob48 >= 85) {
+    advice.push({ text: `未来 48 小时内 ${fmtProb5(prob48)}% 的集合成员累计雨量超过 ${UNC_RAIN_MM} 毫米，降雨基本确定，请提前安排行程。`, cls: '' });
   } else if (prob48 >= 50) {
-    advice.push({ text: `未来 48 小时内有 ${prob48}% 的集合成员预报有雨，降雨可能性较大但仍有变数。`, cls: '' });
+    advice.push({ text: `未来 48 小时内有 ${fmtProb5(prob48)}% 的集合成员累计雨量超过 ${UNC_RAIN_MM} 毫米，降雨可能性较大但仍有变数。`, cls: '' });
   } else if (prob48 > 0) {
-    advice.push({ text: `未来 48 小时仅 ${prob48}% 的集合成员预报有雨，降水以短时、局地性为主。`, cls: '' });
+    advice.push({ text: `未来 48 小时仅 ${fmtProb5(prob48)}% 的集合成员累计雨量超过 ${UNC_RAIN_MM} 毫米，降雨偏零散，不确定性较大。`, cls: '' });
   } else {
-    advice.push({ text: '所有集合成员均未预报未来 48 小时有明显降雨。', cls: '' });
+    advice.push({ text: `所有集合成员未来 48 小时的累计雨量都不足 ${UNC_RAIN_MM} 毫米。`, cls: '' });
   }
 
   // 3) 偏多情形提醒（用 90% 分位说话）
   if (p90_48 >= 25) {
-    advice.push({ text: `偏多情形下未来 48 小时雨量可达 ${fmt(p90_48)} 毫米，需留意城市内涝与低洼路段积水。`, cls: 'danger' });
+    advice.push({ text: `偏多情形下未来 48 小时雨量可达 ${fmtQuant(p90_48)} 毫米，需留意城市内涝与低洼路段积水。`, cls: 'danger' });
   } else if (p90_48 >= 10) {
-    advice.push({ text: `偏多情形下未来 48 小时雨量约 ${fmt(p90_48)} 毫米，出行请预留更多时间。`, cls: 'warn' });
+    advice.push({ text: `偏多情形下未来 48 小时雨量约 ${fmtQuant(p90_48)} 毫米，出行请预留更多时间。`, cls: 'warn' });
   }
 
   // 3b) 7 天尺度的偏多情形（中位数明显低于 90% 分位 → 长时效不确定性偏大）
   if (p90_all > total7 * 1.2 && p90_all > 0.5) {
-    advice.push({ text: `7 天累计的偏多情形（90% 分位）可达 ${fmt(p90_all)} 毫米，明显高于中位数的 ${fmt(total7)} 毫米，长时效预报的不确定性偏大。`, cls: 'warn' });
+    advice.push({ text: `7 天累计的偏多情形（90% 分位）可达 ${fmtQuant(p90_all)} 毫米，明显高于中位数的 ${fmtAccum(total7)} 毫米，长时效预报的不确定性偏大。`, cls: 'warn' });
   }
 
   // 4) 雨雪判断：温度低 + 有降水 → 可能雨夹雪或雪
@@ -2573,25 +4718,27 @@ function renderConclusion(ctx) {
     const len = Math.min.apply(null, clouds.map(a => a.length));
     let s = 0, c = 0;
     for (let i = fStart; i < Math.min(len, fStart + 24); i++) { s += sum(clouds.map(a => a[i])) / clouds.length; c++; }
-    const avg = c ? s / c : 0;
-    advice.push({ text: `未来 24 小时平均云量约 ${Math.round(avg)}%，天空状况以 ${skyText(avg)} 为主。`, cls: '' });
+    // 没有有效时段就干脆不说这句，避免拿 0% 云量当结论
+    if (c) advice.push({ text: `未来 24 小时平均云量约 ${Math.round(s / c)}%，天空状况以 ${skyText(s / c)} 为主。`, cls: '' });
   }
 
   // 6) 风速
   const winds = models.map(m => modelSeries[m].wind_speed_10m).filter(Boolean);
   if (winds.length) {
     const len = Math.min.apply(null, winds.map(a => a.length));
-    let peak = 0;
+    let peak = null;                       // 无有效时段就不下结论，不拿 0 兜底
     for (let i = fStart; i < len; i++) {
       const v = sum(winds.map(a => a[i])) / winds.length;
-      if (v > peak) peak = v;
+      if (peak === null || v > peak) peak = v;
     }
-    advice.push({
-      text: peak >= 39
-        ? `未来 ${fHours} 小时最大风速约 ${fmt(peak)} km/h，风力较强，注意固定户外物品。`
-        : `未来 ${fHours} 小时最大风速约 ${fmt(peak)} km/h，风力温和，对出行影响不大。`,
-      cls: peak >= 39 ? 'warn' : ''
-    });
+    if (peak !== null) {
+      advice.push({
+        text: peak >= 39
+          ? `未来 ${fHours} 小时最大风速约 ${fmt(peak)} km/h，风力较强，注意固定户外物品。`
+          : `未来 ${fHours} 小时最大风速约 ${fmt(peak)} km/h，风力温和，对出行影响不大。`,
+        cls: peak >= 39 ? 'warn' : ''
+      });
+    }
   }
 
   adviceBox.innerHTML = advice.map(a => `<li class="${a.cls}">${a.text}</li>`).join('');
@@ -2615,7 +4762,7 @@ async function doSearch() {
   searchResults.innerHTML = '<div class="status"><span class="spinner"></span>正在查询地名…</div>';
 
   try {
-    const { data, fromCache } = await fetchJSON(urlGeocode(keyword));
+    const { data, fromCache, dataAt } = await fetchJSON(urlGeocode(keyword));
     const list = data.results || [];
 
     if (!list.length) {
@@ -2623,19 +4770,29 @@ async function doSearch() {
       return;
     }
 
-    // 渲染候选列表，点任意一条即填入坐标并立即查询
+    // 渲染候选列表，点任意一条即填入坐标并立即查询。
+    // 注意：这里的每个字段都来自 geocoding 接口（第三方），进 innerHTML 前一律过 escapeHtml()。
+    // 顺序有讲究：**先 filter(Boolean) 再转义** —— escapeHtml(undefined) 返回的是字符串
+    // "undefined"（不是空串），反过来的话缺 admin1 的地点会显示成「undefined · 中国」。
     searchResults.innerHTML = list.map((r, i) => {
-      const region = [r.admin1, r.admin2, r.country].filter(Boolean).join(' · ');
+      const region = [r.admin1, r.admin2, r.country]
+        .filter(Boolean).map(v => escapeHtml(v)).join(' · ');
+      const place  = escapeHtml(r.name || '未命名');
       const pop    = r.population ? ' ｜ 人口约 ' + Math.round(r.population / 10000) + ' 万' : '';
       return `
         <div class="search-item" data-idx="${i}">
           <div>
-            <div class="place">${r.name || '未命名'}</div>
+            <div class="place">${place}</div>
             <div class="region">${region || '—'}${pop}</div>
           </div>
           <div class="coord">${fmt(r.latitude, 4)}, ${fmt(r.longitude, 4)}</div>
         </div>`;
-    }).join('') + (fromCache ? '<div class="chart-note">（本次结果来自本地缓存）</div>' : '');
+    }).join('') + (fromCache
+      ? '<div class="chart-note">（本次结果来自本地缓存' +
+        (dataAt ? '，数据时间 ' + new Date(dataAt).toLocaleString('zh-CN', { hour12: false }) +
+                  '，' + humanAge(Date.now() - dataAt) : '') +
+        '）</div>'
+      : '');
 
     // 绑定点击事件
     Array.from(searchResults.querySelectorAll('.search-item')).forEach(el => {
@@ -2651,7 +4808,8 @@ async function doSearch() {
     });
   } catch (err) {
     console.error(err);
-    searchResults.innerHTML = `<div class="status err">地名查询失败：${err.message}</div>`;
+    searchResults.innerHTML =
+      `<div class="status err">地名查询失败：${escapeHtml(err.message)}</div>`;
   } finally {
     searchBtn.disabled = false;
     searchBtn.textContent = '搜索';
@@ -2887,22 +5045,18 @@ function removeChartSkeleton(card) {
 }
 
 
-/* ---------- KPI 骨架屏（形状跟着三个分组走：3 / 4 / 3 张） ---------- */
+/* ---------- KPI 骨架屏（形状跟着第 2 层走：固定 6 张，宽屏 3×2） ----------
+   阶段一这里是"三组 3 / 4 / 3"共 10 张的骨架，阶段二第一屏只剩 6 张核心卡，
+   骨架形状跟着改成 6 张，否则会出现"骨架十张、数据一到变六张"的跳变。 */
 function renderKpiSkeleton() {
   const skCard = '<div class="kpi sk">' +
                    '<div class="sk-line" style="width:58%"></div>' +
                    '<div class="sk-line" style="width:44%;height:20px;margin:12px 0"></div>' +
                    '<div class="sk-line" style="width:78%;height:9px"></div>' +
                  '</div>';
-  const skGroup = (title, n) =>
-    '<div class="kpi-group">' +
-      '<div class="kpi-group-title">' + title + '</div>' +
-      '<div class="kpi-grid">' + skCard.repeat(n) + '</div>' +
-    '</div>';
 
-  kpiGrid.className = 'kpi-groups';
-  kpiGrid.innerHTML =
-    skGroup('核心数字', 3) + skGroup('不确定性', 4) + skGroup('环境', 3);
+  kpiGrid.className = 'kpi-grid core-6';
+  kpiGrid.innerHTML = skCard.repeat(CORE_CARD_COUNT);
 }
 
 
@@ -2988,7 +5142,7 @@ function syncRangeButtons() {
 
   const hint = bar.querySelector('.rb-hint');
   if (hint) {
-    hint.textContent = '三张图同步切换；结论卡固定看未来 24 小时' +
+    hint.textContent = '三张图同步切换；结论与明细固定看未来 24 小时' +
       (lastCtx ? ` ｜ 预报数据共 ${lastCtx.fHours} 小时` : '');
   }
 }
@@ -3004,6 +5158,12 @@ function applyRange(hours) {
 
 /** 三张图的统一入口：初次渲染与切换范围都走这里 */
 function renderCharts(ctx) {
+  // 折叠状态下不画：容器宽度是 0，画出来的是变形的图。
+  // 只记一笔"欠着"，等展开时由 ensureDetailFold 的 toggle 监听补画。
+  const fold = document.getElementById('detailFold');
+  if (fold && !fold.open) { chartsPending = true; return; }
+  chartsPending = false;
+
   // Chart.js 没加载出来（离线、或 CDN 被网络策略拦掉）时，别让整页跟着挂：
   // KPI 与结论不依赖 Chart.js，照常显示，只在图表位置给一句能看懂的提示。
   if (typeof Chart === 'undefined') {
@@ -3040,8 +5200,12 @@ function clearChartLibError(card) {
 
 injectInteractionStyles();
 ensureLoadBar();
-ensureRangeBar();
-ensureAdviceCard();
+ensureDetailFold();     // 先建第 3 层：下面几张卡片都要挂进它里面
+ensureScoreSection();   // 综合评分卡（折叠区顶部）
+ensurePrefSection();    // 我的偏好卡（紧跟评分卡）
+ensureRangeBar();       // 再建范围切换条（它按 overviewCard 定位，现在落在折叠区内）
+ensureAdviceCard();     // 第 1 层：一句话综合建议
+ensureAlertBar();       // 第 1 层与第 2 层之间：条件提示条（默认隐藏，不占空间）
 
 
 /* =======================================================================
@@ -3080,9 +5244,18 @@ function locateMe() {
   );
 }
 
-/** 刷新页脚的缓存状态提示 */
+/**
+ * 刷新页首的缓存状态：还剩几条、按钮是否可用。
+ * 没有有效缓存时把按钮置灰 —— 「清空」一个空缓存是没有意义的动作，
+ * 置灰比让用户点了没反应更诚实（旁边的「0 条」就是原因）。
+ */
 function refreshCacheInfo() {
-  cacheInfo.textContent = '｜ 本地缓存 ' + cacheCount() + ' 条（10 分钟内复用） ';
+  const n = cacheCount();
+  cacheInfo.textContent = '本地缓存 ' + n + ' 条';
+  cacheInfo.title = n
+    ? '同一坐标 10 分钟内重复查询会直接复用这 ' + n + ' 条数据，不再请求接口'
+    : '当前没有可复用的缓存，查询会直接请求接口';
+  clearCacheBtn.disabled = n === 0;
 }
 
 /* ---- 事件绑定 ---- */
@@ -3097,11 +5270,13 @@ geoBtn.addEventListener('click', locateMe);
   watchCoordInput(el);        // 实时清掉"超范围"提示：改对了就立刻恢复
 });
 
-// 手动清空缓存（运行时的"删除缓存"，不需要改代码）
+// 手动清空缓存（运行时的"删除缓存"，不需要改代码）。
+// 注意：清缓存**不会**撤掉屏幕上已经画好的这批数字 —— 页脚的「数据时间」
+// 描述的正是这批数字，所以留着不动，别让它凭空消失。
 clearCacheBtn.addEventListener('click', () => {
   clearApiCache();
   refreshCacheInfo();
-  setStatus('本地缓存已清空，下次查询会重新请求接口。', 'ok');
+  setStatus('本地缓存已清空，下次查询会重新请求接口（页面上已显示的这批数据不受影响）。', 'ok');
 });
 
 /* ---- 初始化：优先用 localStorage 里的坐标，否则用默认值，并自动查询一次 ---- */
