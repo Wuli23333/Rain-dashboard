@@ -475,11 +475,9 @@
     .alert-chip { font-size: 12px; padding: 5px 10px; }
   }
 
-  /* 提示条底部的统一免责小字（阶段三） */
-  .alert-disclaimer { font-size: 11px; color: var(--muted); opacity: .8; margin-left: 4px; }
-
-  /* 建议卡底部的统一免责小字（阶段三：涉及淋湿风险时出现） */
-  .advice-card .adv-foot { margin-top: 8px; font-size: 11px; color: var(--muted); opacity: .8; line-height: 1.6; }
+  /* 提示条 / 建议卡底部的免责小字样式已随"免责声明 4 处 → 2 处"删除
+     （第 1 屏收口）。剩下两处：页脚（无专属样式，走 footer 默认）
+     与折叠区顶部评分卡的 .score-disclaimer。 */
 
   /* ==================== 阶段三：综合评分 + 我的偏好（折叠区顶部） ==================== */
   .score-body { display: flex; flex-direction: column; gap: 9px; }
@@ -500,10 +498,18 @@
   .score-fill.c-danger { background: var(--danger); }
   .score-val { flex: 0 0 34px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
 
+  /* 主值（口语档位）与副标题（主要是 X：原始数值，为什么会难受）。
+     2026-09-24：主值从"62 分"改成一句人话，分数降级成下面那行小字（.score-sub）。
+     主值颜色沿用 scoreTierClass 的红黄绿，不新增第三把尺子。 */
+  .score-verdict { font-size: 22px; font-weight: 700; line-height: 1.3; }
+  .score-verdict.c-ok     { color: var(--ok); }
+  .score-verdict.c-warn   { color: var(--warn); }
+  .score-verdict.c-danger { color: var(--danger); }
+  .score-why { font-size: 13px; color: var(--text); line-height: 1.55; margin-top: -4px; }
+
   .score-total { border-top: 1px solid var(--border); padding-top: 11px; margin-top: 3px; }
-  .score-total .score-bar { height: 13px; }
-  .score-total .score-name { font-weight: 700; color: var(--text); }
-  .score-total .score-val { font-size: 15px; }
+  .score-total .score-bar { height: 9px; }
+  .score-total .score-sub { flex: 0 0 auto; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
   .score-note { font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.6; }
   .score-cov { font-size: 11px; color: var(--muted); margin-top: 4px; }
@@ -861,8 +867,10 @@
   </section>
 
   <footer data-page-node-id="6qHhfiJsQPE2A1VdC4t0ze">
+    个人项目，非官方预报<br  data-page-node-id="ZkX2h2u7VxC6xT1F4qY9sL"/>
+    <span id="footDisclaimer"></span><br  data-page-node-id="Qp4Wm2rT8nJb3Kd1Yv6HsX"/>
     数据来源：<a href="https://open-meteo.com/" target="_blank" rel="noopener" data-page-node-id="tikG91PB7Ni9iqIoqS6reF">Open-Meteo</a>
-    预报 / 集合 / 地理编码 API ｜ 降雨量单位：毫米（mm）｜ 时间基准：北京时间（Asia/Shanghai）<br  data-page-node-id="UiSECF5SmVUd77la7VW0cs"/>
+    预报 / 集合 / 地理编码 API ｜ 降水量单位：毫米（mm）｜ 时间基准：北京时间（Asia/Shanghai）<br  data-page-node-id="UiSECF5SmVUd77la7VW0cs"/>
     <span id="updateTime" data-page-node-id="1KTX7EnLWMbJI9lv71735o"></span>
   </footer>
 </div>
@@ -889,6 +897,15 @@ const API_GEOCODE  = 'https://geocoding-api.open-meteo.com/v1/search';
 const DEFAULT_LAT = 36.0984;   // 默认纬度（甘肃兰州）
 const DEFAULT_LON = 103.7743;  // 默认经度
 const STORAGE_KEY = 'rainPanel.coords';  // localStorage 中保存坐标的键名
+
+/* 定位参数（来源：【经验值】—— 浏览器没有"该等多久"的权威值，这两个数只影响等待时长）
+   自动定位（首次打开）与手动定位（点「用我当前位置」）共用这张表，
+   避免 timeout 散成裸字面量、两处渐渐跑偏。 */
+const GEO = {
+  AUTO_TIMEOUT_MS:   6000,   // 首次打开自动定位：最多等这么久，超时/被拒就先用默认地点出数
+  MANUAL_TIMEOUT_MS: 10000,  // 点「用我当前位置」：用户是主动在等的，可以多等一会儿
+  MAX_AGE_MS:        60000   // 1 分钟内刚拿到过的位置直接复用，不再唤醒 GPS
+};
 
 const TZ = 'Asia/Shanghai';    // 接口固定使用北京时间，前端展示也按它对齐
 
@@ -1215,7 +1232,9 @@ const REL_DIV_TIERS = {
    -------------------------------------------------------------------------
    这一整块都是"自造"的：风力系数、评分分档、评分权重、偏好放大系数，
    全部是【自定义】经验值，没有任何国家 / 国际标准背书，也没有物理公式依据。
-   页面上凡用到这些数字的地方，底部都要挂 DISCLAIMER_NOTE 那句统一免责声明。
+   免责声明（DISCLAIMER_NOTE）**只挂两处**：页脚（ensureFootDisclaimer）与
+   折叠区顶部评分卡（renderScoreSection）—— 2026-09-24 第 1 屏收口，从 4 处减到 2 处，
+   不是删掉这句话，而是搬家（建议卡底部 / 提示条尾部 / 降雨体感卡页脚三处撤掉）。
    ========================================================================= */
 
 /* -------------------- 【自定义】风雨耦合：合成风力与风力系数 --------------------
@@ -1328,6 +1347,38 @@ const WIND_RAIN_BOOST = 1.5;
 /* 总分下方必须写的一句（用户指定原文） */
 const SCORE_CUSTOM_NOTE = '⚠️ 权重为自定义设置，非国家标准，仅供参考';
 
+/* -------------------- 【自定义】综合体感分的口语档位（主值那一行） --------------------
+   用户 2026-09-24 拍板：光看「62 分」体会不到这是怎样的一天，所以主值改说人话，
+   分数降级成小字（模型是自造的，所以分数仍留在卡片里做内部刻度）。
+   max 是上界（levelOf 用 `x < max` 判定），因此与用户给的分区间逐格对齐：
+     0–19 舒服的一天／20–39 还行／40–59 有点将就／60–79 挺难受／80–100 能不出门就别出门
+   措辞逐条照抄，不自行改写；要调分界值必须先问用户。
+   tip 是配套的"要不要做准备"，与主值同屏（副标题位置留给「主要是 X」，见 SCORE_DIM_REASON）。 */
+const SCORE_VERDICT_LEVELS = [
+  { max: 20,       name: '舒服的一天',       tip: '什么都不用特别准备' },
+  { max: 40,       name: '还行',             tip: '出门前想一下就行'     },
+  { max: 60,       name: '有点将就',         tip: '得为天气做点准备'     },
+  { max: 80,       name: '挺难受',           tip: '出门会明显不舒服'     },
+  { max: Infinity, name: '能不出门就别出门', tip: '有明确风险或极端不适' }
+];
+
+/* 分项分 ≥ 此值 → 副标题（主要是 X）用 heavy 档措辞。
+   取 60 是与 SCORE_VERDICT_LEVELS 里「挺难受」的下界同一把尺子，不另立门槛。 */
+const SCORE_REASON_HEAVY_MIN = 60;
+
+/* -------------------- 【自定义】副标题「主要是 X：<原始数值+单位>，为什么会难受」 --------------------
+   格式由用户指定（例：主要是风：阵风 45 km/h，骑车会明显吃力），
+   要求必须带上**原始数值和单位**，不能只说"风力影响较大"（那等于没翻译）。
+   每一维两档：分项分 < SCORE_REASON_HEAVY_MIN 用 mild，≥ 它用 heavy；
+   风在勾了「我会骑车」时优先用 bike 档 —— 用户验收要求：勾上骑车后副标题要跟着变。
+   全部是【经验值】口语描述，不是气象学结论。 */
+const SCORE_DIM_REASON = {
+  RAIN: { mild: '出门鞋子会湿',   heavy: '衣服会被淋透'     },
+  WIND: { mild: '伞不太好撑',     heavy: '走路撑伞都费劲', bike: '骑车会明显吃力' },
+  TEMP: { mild: '得注意加减衣服', heavy: '长时间在外很难受' },
+  VIS:  { mild: '远处略发灰',     heavy: '路上看不清'       }
+};
+
 /* -------------------- 【自定义】淋湿风险档位（按有效雨强） --------------------
    综合建议副句里的"淋湿风险"用这四档；勾了「有伞」就整体下调一档（最低档不再降）。 */
 const WET_RISK_LEVELS = [
@@ -1352,7 +1403,11 @@ const PREF_DEFS = [
   { key: 'cold',     label: '我怕冷',          hint: '温度不适权重 ×1.5' }
 ];
 
-/* 统一免责声明：所有涉及体感 / 分数 / 淋湿风险的卡片与提示条底部都挂这句（用户指定原文） */
+/* 统一免责声明（用户指定原文）。全站只挂 **两处**：
+   ① 页脚 —— ensureFootDisclaimer()
+   ② 折叠区顶部评分卡 —— renderScoreSection() 的 .score-disclaimer
+   2026-09-24 第 1 屏收口：原为 4 处（+ 建议卡底部 / 提示条尾部 / 降雨体感卡页脚），
+   按要求减到 2 处 —— 是搬家不是删内容，全站仍找得到这句话。 */
 const DISCLAIMER_NOTE =
   '体感与评分基于自定义映射规则与权重，非国家标准，因人而异，仅供参考。';
 
@@ -1375,7 +1430,8 @@ const PRECISION = {
   RELDIV_PCT: 10,    // 模型间相对分歧：步长 10%
   HOUR_MM:     1,    // 小时雨强：小数位
   TEMP_C:      1,    // 温度：小数位
-  WIND_KMH:    1     // 风速/阵风：步长 1 km/h（取整，无 "<1" 兜底：0.4km/h 就是"基本无风"）
+  WIND_KMH:    1,    // 风速/阵风：步长 1 km/h（取整，无 "<1" 兜底：0.4km/h 就是"基本无风"）
+  COORD:       2     // 坐标：小数位（地点名的"身份证"只到 0.01°，再往下就是假精度）
 };
 
 /* -------------------- 【自定义】能见度取整规则（米） --------------------
@@ -2390,6 +2446,11 @@ function classifyError(err) {
 
 let retryCount = 0;    // 连续重试次数，成功后归零，用于在提示里如实告知
 
+/* 首次打开那次自动定位是否已作废。
+   initApp 会先发一次定位、等它回来再出数；如果用户在等待期间自己查了别的地点，
+   那次定位的结果就不该再把地点抢回去（否则用户刚选的城市会被无声覆盖）。 */
+let autoLocateStale = false;
+
 /** 请求失败时的状态栏：错误原因 + 技术细节 + 重试按钮 */
 function setStatusError(err) {
   const info = classifyError(err);
@@ -2426,7 +2487,10 @@ async function onRetry() {
 
 async function runQuery(opts) {
   const isRetry = !!(opts && opts.isRetry);
+  const isInit  = !!(opts && opts.fromInit);
   if (!isRetry) retryCount = 0;      // 手动发起的新查询，重新计数
+  // 用户自己发起的查询 → 作废初次打开时那次还没返回的自动定位（initApp 的守卫）
+  if (!isInit) autoLocateStale = true;
 
   // 1) 校验输入：不合法就提示并阻止查询（不会发出任何请求）
   const coord = validateCoords();
@@ -2437,7 +2501,7 @@ async function runQuery(opts) {
     return;
   }
   const lat = coord.lat, lon = coord.lon;
-  updateInputPlace();          // 同步 summary 右侧的地点名（成功/失败都会走到，见第 11 条·坑 2）
+  updateInputPlace(lat, lon);  // 同步 summary 右侧的地点名（成功/失败都会走到，见第 11 条·坑 2）
 
   // 2) 进入加载态：顶部进度条 + KPI 骨架屏 + 图表骨架占位
   ensureRangeBar();            // 防御：万一被编辑器重新序列化抹掉了，这里补回来
@@ -2476,27 +2540,29 @@ async function runQuery(opts) {
     renderConclusion(ctx);
     syncRangeButtons();
 
-    // 6) 状态栏：标出每个接口是"命中缓存"还是"实时请求"，以及 N/M 个接口可用
+    // 6) 状态栏：全部成功 → 压成一行，只留「数据就绪 · N/M 个接口可用」；
+    //    有任一接口没取到 → 保留完整信息（缺失原因 + 重试入口），不许省（第 1 屏收口·第 1 处）。
     const okCount = settled.filter(s => s.ok).length;
-    const tag = (s) => s.ok
-      ? `<span class="tag ${s.fromCache ? 'hit' : ''}">${s.label}${s.fromCache ? '·缓存' : '·实时'}</span>`
-      : `<span class="tag miss">${s.label}·未取到</span>`;
     const missing = settled.filter(s => !s.ok)
       .map(s => `${s.label}（${escapeHtml(classifyError(s.error).reason)}）`).join('；');
 
-    setStatus(
-      `数据就绪 · ${okCount}/${settled.length} 个接口可用` +
-      `<span class="tag">纬度 ${fmt(lat, 4)}，经度 ${fmt(lon, 4)}` +
-      (window.__pickedPlace ? '（' + escapeHtml(window.__pickedPlace) + '）' : '') + '</span><br>' +
-      tag(fc) + tag(en) +
-      `<span class="tag">${ctx.models.length} 个模型</span>` +
-      `<span class="tag">${ctx.ens.members.length} 个集合成员</span>` +
-      (window.__chartLibMissing ? '<span class="tag miss">⚠ 图表库未加载，图表暂不可用</span>' : '') +
-      (missing
-        ? `<br>⚠️ ${missing} 未返回数据：集合相关的指标显示为「数据不可用」，其余照常。点「查询」可再试一次。`
-        : ''),
-      missing ? 'warn' : 'ok'
-    );
+    if (missing) {
+      const tag = (s) => s.ok
+        ? `<span class="tag ${s.fromCache ? 'hit' : ''}">${s.label}${s.fromCache ? '·缓存' : '·实时'}</span>`
+        : `<span class="tag miss">${s.label}·未取到</span>`;
+      setStatus(
+        `数据就绪 · ${okCount}/${settled.length} 个接口可用` +
+        `<span class="tag">${escapeHtml(placeLabel(lat, lon))}</span><br>` +
+        tag(fc) + tag(en) +
+        `<span class="tag">${ctx.models.length} 个模型</span>` +
+        `<span class="tag">${ctx.ens.members.length} 个集合成员</span>` +
+        (window.__chartLibMissing ? '<span class="tag miss">⚠ 图表库未加载，图表暂不可用</span>' : '') +
+        `<br>⚠️ ${missing} 未返回数据：集合相关的指标显示为「数据不可用」，其余照常。点「查询」可再试一次。`,
+        'warn'
+      );
+    } else {
+      setStatus(`数据就绪 · ${okCount}/${settled.length} 个接口可用`, 'ok');
+    }
 
     // 数据时间取两个接口里"最旧"的取回时刻：命中缓存时写「9 分钟前 · 来自本地缓存」，
     // 而不是掩盖成"刚刚"。语义写在 title 里，免得被误读成预报起报时间。
@@ -2768,6 +2834,16 @@ function fmtTemp(c) {
   const n = numOrNull(c);
   if (n === null) return '—';
   return n.toFixed(PRECISION.TEMP_C);
+}
+
+/**
+ * 坐标 → 固定 PRECISION.COORD 位小数，**不削尾随 0**（与 fmtTemp 同一类"固定小数位"写法）。
+ * 0.01° 纬度 ≈ 1.1 km，再精确到 0.0001° 就是编造精度（"纬度 36.0984" 这种假精度）。
+ * 缺数据返回「—」，绝不用 0 顶替。
+ */
+function fmtCoord(n) {
+  if (n === null || n === undefined || n === '' || Number.isNaN(Number(n))) return '—';
+  return Number(n).toFixed(PRECISION.COORD);
 }
 
 /**
@@ -3682,7 +3758,8 @@ function coreCards(ctx, unc, comfort, b) {
     if (b.ensUsable) foot.push(`24h 累计 ${fmtAccum(b.p50_24)} mm（国标：${grade.name}）`);
     if (rawOk) foot.push(`原始雨强峰值 ${fmt(comfort.hourPeak, PRECISION.HOUR_MM)} mm/h（未考虑风）`);
     foot.push(CARD_RAIN_FEEL_SCOPE_NOTE);
-    foot.push(DISCLAIMER_NOTE);
+    /* 统一免责声明不在这张卡上：第 1 屏收口后它只保留两处（页脚 + 折叠区顶部评分卡），
+       见 ensureFootDisclaimer / renderScoreSection（用户要求：4 处 → 2 处）。 */
     cards.push({
       label: '未来 24 小时降雨体感',
       value: lv ? lv.name : '—',
@@ -4147,13 +4224,11 @@ function ensureAdviceCard() {
   why.id = 'adviceWhy';
   why.className = 'adv-why';
 
-  const foot = document.createElement('div');
-  foot.id = 'adviceFoot';
-  foot.className = 'adv-foot';
-
+  /* 原来还有一行 adv-foot（挂统一免责声明）。第 1 屏收口后免责声明只剩
+     页脚 + 折叠区顶部两处，这里整行撤掉 —— 建议卡下面只留「依据」一行小字，
+     否则第一屏又是"一句话 + 两行小字"。 */
   card.appendChild(main);
   card.appendChild(why);
-  card.appendChild(foot);
 
   // 插在数据卡片区最上方；找不到锚点就挂到主容器末尾，保证一定存在
   if (kpiGrid && kpiGrid.parentNode) kpiGrid.parentNode.insertBefore(card, kpiGrid);
@@ -4173,11 +4248,6 @@ function renderAdvice(decision) {
   const why  = document.getElementById('adviceWhy');
   if (main) main.textContent = decision.headline;
   if (why)  why.textContent  = decision.why;
-
-  /* 涉及淋湿风险时，底部挂统一免责声明（其余卡片见 renderAlerts / renderScoreSection）。
-     没有雨（也就没有淋湿风险）时不挂 —— 一句"体感与评分"的免责配"都认为不下雨"会很突兀。 */
-  const foot = document.getElementById('adviceFoot');
-  if (foot) foot.textContent = decision.wetRisk ? DISCLAIMER_NOTE : '';
 
   card.className = 'card advice-card ' + decision.cls;
   card.style.display = '';
@@ -4257,14 +4327,30 @@ function ensureInputFold() {
   return fold;
 }
 
-/** 折叠体 summary 右侧的地点名：有 __pickedPlace 用它，否则退化成「纬度 X，经度 Y」 */
-function updateInputPlace() {
+/* 当前坐标是怎么来的：'place'（搜索选点）/ 'geo'（定位得来）/ 'default'（默认坐标或手填）。
+   只决定地点标签的措辞，不参与任何计算。
+   为什么需要它：自动定位成功时并没有地名（接口只给坐标），若还写「默认地点」，
+   等于把用户自己的位置说成"默认"，与"页面不撒谎"冲突。 */
+let coordSource = 'default';
+
+/** 地点身份标签（**原始文本，未转义**）：有地名用「地名」；定位得来的写「当前位置 · 39.90, 116.41」；
+ *  其余写「默认地点 · 36.10, 103.77」。
+ *  summary 右侧 #inputPlace 与状态栏共用，保证两处文案一致（第 1 屏收口·第 2 处）。
+ *  进 innerHTML 前必须 escapeHtml（地名是 geocoding 的第三方原文）；进 textContent 则无需。 */
+function placeLabel(lat, lon) {
+  const place = (typeof window.__pickedPlace === 'string' ? window.__pickedPlace : '').trim();
+  if (place) return place;
+  const head = coordSource === 'geo' ? '当前位置 · ' : '默认地点 · ';
+  return head + fmtCoord(lat) + ', ' + fmtCoord(lon);
+}
+
+/** 折叠体 summary 右侧的地点名：有地名用地名，定位得来写「当前位置」，否则「默认地点 · 36.10, 103.77」 */
+function updateInputPlace(lat, lon) {
   const el = document.getElementById('inputPlace');
   if (!el) return;
-  const place = (typeof window.__pickedPlace === 'string' ? window.__pickedPlace : '').trim();
-  el.textContent = place ||
-    '纬度 ' + (latInput ? (latInput.value || '—') : '—') +
-    '，经度 ' + (lonInput ? (lonInput.value || '—') : '—');
+  const la = (lat !== undefined && lat !== null) ? lat : (latInput ? latInput.value : '');
+  const lo = (lon !== undefined && lon !== null) ? lon : (lonInput ? lonInput.value : '');
+  el.textContent = placeLabel(la, lo);
 }
 
 function collapseInputFold() {
@@ -4301,8 +4387,10 @@ function renderAlerts(comfort, prefs) {
     ).join('') +
     (a.more
       ? '<span class="alert-more">（还有 ' + a.more + ' 项，详见下方数据）</span>'
-      : '') +
-    '<span class="alert-disclaimer">' + DISCLAIMER_NOTE + '</span>';
+      : '');
+  /* 提示条尾部原来还挂一句统一免责声明，已按"4 处 → 2 处"撤掉：
+     它就在第一屏、紧跟建议卡，和"第一眼看见建议"的目标冲突；
+     全站仍能在页脚与折叠区顶部（评分卡）找到同一句话。 */
   bar.style.display = '';
 }
 
@@ -4349,6 +4437,107 @@ function scoreTierClass(n) {
   return 'c-danger';
 }
 
+/**
+ * 总分 → 口语档位（卡片主值那一行）。缺数据（总分「—」）返回 null，调用方写「数据不足」。
+ * 只查表，不碰任何评分计算。
+ */
+function scoreVerdict(n) {
+  return levelOf(SCORE_VERDICT_LEVELS, n);
+}
+
+/**
+ * 副标题判定用的"有效权重"（即"分项分 × 权重"里的那个权重）。
+ *
+ * 与 computeScores 内部同一套规则、同一批常量：基础权重 SCORE_WEIGHTS，
+ * 有雨时风 ×WIND_RAIN_BOOST，勾「会骑车」风再 ×PREF_BOOST.WIND，勾「怕冷」温度 ×PREF_BOOST.TEMP。
+ * 为什么另写一份、而不让 computeScores 把它算好的权重一起返回：用户明确要求
+ * "computeScores 的任何计算不许动"（含签名），所以这里不碰它。
+ * 两份真相由 S20 的数值断言（各场景最大项 == 这四个值的最大值）与源码哨兵
+ * （computeScores 仍引用 WIND_RAIN_BOOST / PREF_BOOST）共同锁住，改任一处都会红。
+ */
+function scoreDimWeights(scores, prefs) {
+  const p = prefs || {};
+  const hasRain = !!(scores && scores.hasRain);
+  return {
+    RAIN: SCORE_WEIGHTS.RAIN,
+    WIND: SCORE_WEIGHTS.WIND * (hasRain ? WIND_RAIN_BOOST : 1) * (p.bike ? PREF_BOOST.WIND : 1),
+    TEMP: SCORE_WEIGHTS.TEMP * (p.cold ? PREF_BOOST.TEMP : 1),
+    VIS:  SCORE_WEIGHTS.VIS
+  };
+}
+
+/**
+ * 四个维度里「分项分 × 有效权重」最大的那一项 → 副标题「主要是 X：<原始数值+单位>，为什么会难受」。
+ *
+ * 原始数值必须取**驱动那一项分数**的量，否则等于没翻译（用户要求带上数值和单位）：
+ *   雨     → 有效雨强 effRainPeak（降雨不适分就是按它算的）        单位 mm/h
+ *   风     → 阵风 gustPeak，单位 km/h（与用户给的例子一致）——
+ *            注意评分用的是合成风力 windPeak，对人说话用阵风更好懂，两处口径在文案里写明
+ *   温度   → 最低/最高气温里分项分更高的那一端，单位 ℃
+ *   能见度 → 最低能见度 visMin，单位由 fmtVis 自带（m / km / >10 km）
+ * 分项分为 null、或原始值缺失的维度不参与（不能凭空当第一名）；四个都取不到 → null。
+ * 只查表 + 比大小，不参与任何评分计算。
+ */
+function dominantDim(scores, comfort, prefs) {
+  if (!scores) return null;
+  const c = comfort || {};
+  const w = scoreDimWeights(scores, prefs);
+  const p = prefs || {};
+  const sRain = numOrNull(scores.rain), sWind = numOrNull(scores.wind);
+  const sTemp = numOrNull(scores.temp), sVis  = numOrNull(scores.vis);
+  const cand = [];
+
+  if (sRain !== null && numOrNull(c.effRainPeak) !== null) {
+    cand.push({
+      key: 'RAIN', label: '雨', score: sRain, contrib: sRain * w.RAIN,
+      rawText: '有效雨强 ' + fmt(c.effRainPeak, PRECISION.HOUR_MM) + ' mm/h',
+      raw: c.effRainPeak, unit: 'mm/h'
+    });
+  }
+  if (sWind !== null && numOrNull(c.gustPeak) !== null) {
+    cand.push({
+      key: 'WIND', label: '风', score: sWind, contrib: sWind * w.WIND,
+      rawText: '阵风 ' + fmtWind(c.gustPeak) + ' km/h',
+      raw: c.gustPeak, unit: 'km/h'
+    });
+  }
+  if (sTemp !== null) {
+    /* 评分是 max(冷端, 热端)，这里按同一张表复算一次，只为知道"是哪一端在难受" */
+    const cold = scoreLinear(TEMP_SCORE_STOPS, c.tempMin);
+    const hot  = scoreLinear(TEMP_SCORE_STOPS, c.tempMax);
+    const useCold = numOrNull(cold) !== null && (numOrNull(hot) === null || cold >= hot);
+    const tv = useCold ? c.tempMin : c.tempMax;
+    if (numOrNull(tv) !== null) {
+      cand.push({
+        key: 'TEMP', label: '温度', score: sTemp, contrib: sTemp * w.TEMP,
+        rawText: (useCold ? '最低气温 ' : '最高气温 ') + fmtTemp(tv) + '℃',
+        raw: tv, unit: '℃'
+      });
+    }
+  }
+  if (sVis !== null && numOrNull(c.visMin) !== null) {
+    cand.push({
+      key: 'VIS', label: '能见度', score: sVis, contrib: sVis * w.VIS,
+      rawText: fmtVis(c.visMin), raw: c.visMin, unit: 'm'
+    });
+  }
+  if (!cand.length) return null;
+
+  let best = cand[0];
+  for (let i = 1; i < cand.length; i++) if (cand[i].contrib > best.contrib) best = cand[i];
+
+  const r = SCORE_DIM_REASON[best.key];
+  const reason = (best.key === 'WIND' && p.bike)
+    ? r.bike
+    : (best.score >= SCORE_REASON_HEAVY_MIN ? r.heavy : r.mild);
+
+  return {
+    key: best.key, label: best.label, score: best.score, contrib: best.contrib,
+    raw: best.raw, unit: best.unit, rawText: best.rawText, reason: reason,
+    headline: '主要是' + best.label + '：' + best.rawText + '，' + reason
+  };
+}
+
 /** 一条分项分（名字 + 条形图 + 数值）；缺数据 → 「—」且条形为 0；颜色按分数分档，不按维度固定 */
 function scoreRowHtml(name, score) {
   const n = numOrNull(score);
@@ -4387,9 +4576,28 @@ function renderScoreSection(comfort, scores, prefs) {
     scoreRowHtml('能见度',   scores.vis)
   ].join('');
 
-  const totalN = numOrNull(scores.total) === null ? '—' : String(Math.round(scores.total));
-  const totalW = numOrNull(scores.total) === null ? 0 : Math.min(100, Math.max(0, scores.total));
-  const totalCls = scoreTierClass(numOrNull(scores.total));
+  const totalNum = numOrNull(scores.total);
+  const verdict  = scoreVerdict(totalNum);
+  /* 主值改说人话之后，分数与"主要是 X"都只在总分有效时才有意义（总分「—」时写「数据不足」） */
+  const dom      = totalNum === null ? null : dominantDim(scores, comfort, prefs);
+  const totalN   = totalNum === null ? '—' : String(Math.round(totalNum));
+  const totalW   = totalNum === null ? 0 : Math.min(100, Math.max(0, totalNum));
+  const totalCls = scoreTierClass(totalNum);
+
+  /* 第 1 行主值 = 口语档位（不再是分数）；第 2 行副标题 = 主要是 X：原始数值+单位，为什么会难受。
+     颜色沿用 scoreTierClass（与四条分项条、总分条同一把尺子，不新增第三把尺子）。 */
+  const headHtml =
+    '<div class="score-verdict ' + (verdict ? totalCls : '') + '">' +
+      (verdict ? verdict.name : '数据不足') +
+    '</div>' +
+    '<div class="score-why">' + (dom ? dom.headline : '—') + '</div>';
+
+  /* 第 3 行小字：分数降级成内部刻度（模型是自造的，透明性要保住），总分条形图保留 */
+  const totalHtml =
+    '<div class="score-total">' +
+      '<span class="score-sub">综合 ' + totalN + (totalNum === null ? '' : ' 分') + '</span>' +
+      '<span class="score-bar total"><span class="score-fill ' + totalCls + '" style="width:' + totalW + '%"></span></span>' +
+    '</div>';
 
   /* 覆盖率标注：紧跟总分。缺能见度 / 覆盖率不足 → 不给分并说明原因；
      ref 档标「仅供参考」、禁用绝对评级词（"很难受"之类不下结论）。 */
@@ -4415,12 +4623,9 @@ function renderScoreSection(comfort, scores, prefs) {
     : '';
 
   body.innerHTML =
+    headHtml +
+    totalHtml +
     rows +
-    '<div class="score-total">' +
-      '<span class="score-name">综合评分</span>' +
-      '<span class="score-bar total"><span class="score-fill ' + totalCls + '" style="width:' + totalW + '%"></span></span>' +
-      '<span class="score-val">' + totalN + '</span>' +
-    '</div>' +
     covLine +
     '<div class="score-note">' + scoreWeightsText() +
       (boostNotes.length ? '　·　' + boostNotes.join('　·　') : '') + '</div>' +
@@ -5123,8 +5328,13 @@ function renderConclusion(ctx) {
   if (temps.length) {
     const len = Math.min.apply(null, temps.map(a => a.length));
     const avg = [];
-    for (let i = fStart; i < len; i++) avg.push(sum(temps.map(a => a[i])) / temps.length);
-    minTemp = minOf(avg);
+    // 与第 2 层 renderKpis 一致：逐小时用 validNums 丢弃 null，该小时全缺则整点记 null、
+    // 不参与最低温（避免 sum 把 Number(null)===0 的缺失小时冒充成 0.0℃ 的"夜里最低温"）。
+    for (let i = fStart; i < len; i++) {
+      const vals = validNums(temps.map(a => a[i]));
+      avg.push(vals.length ? vals.reduce((x, y) => x + y, 0) / vals.length : null);
+    }
+    minTemp = minOf(avg);   // 无有效温度时返回 null
   }
 
   // 1) 长时效参考（24 小时之外的情况）
@@ -5169,10 +5379,17 @@ function renderConclusion(ctx) {
   const clouds = models.map(m => modelSeries[m].cloud_cover).filter(Boolean);
   if (clouds.length) {
     const len = Math.min.apply(null, clouds.map(a => a.length));
-    let s = 0, c = 0;
-    for (let i = fStart; i < Math.min(len, fStart + 24); i++) { s += sum(clouds.map(a => a[i])) / clouds.length; c++; }
+    const hourAvgs = [];
+    // 与第 2 层 renderKpis 一致：该小时各模型有效云量求平均，全缺则不计入（不拿 0% 冒充）
+    for (let i = fStart; i < Math.min(len, fStart + 24); i++) {
+      const vals = validNums(clouds.map(a => a[i]));
+      if (vals.length) hourAvgs.push(vals.reduce((x, y) => x + y, 0) / vals.length);
+    }
     // 没有有效时段就干脆不说这句，避免拿 0% 云量当结论
-    if (c) advice.push({ text: `未来 24 小时平均云量约 ${Math.round(s / c)}%，天空状况以 ${skyText(s / c)} 为主。`, cls: '' });
+    if (hourAvgs.length) {
+      const cloudAvg = hourAvgs.reduce((x, y) => x + y, 0) / hourAvgs.length;
+      advice.push({ text: `未来 24 小时平均云量约 ${Math.round(cloudAvg)}%，天空状况以 ${skyText(cloudAvg)} 为主。`, cls: '' });
+    }
   }
 
   // 6) 风速
@@ -5181,7 +5398,9 @@ function renderConclusion(ctx) {
     const len = Math.min.apply(null, winds.map(a => a.length));
     let peak = null;                       // 无有效时段就不下结论，不拿 0 兜底
     for (let i = fStart; i < len; i++) {
-      const v = sum(winds.map(a => a[i])) / winds.length;
+      const vals = validNums(winds.map(a => a[i]));   // 该小时各模型的有效风速
+      if (!vals.length) continue;                     // 该小时全缺 → 跳过，不参与峰值
+      const v = vals.reduce((x, y) => x + y, 0) / vals.length;
       if (peak === null || v > peak) peak = v;
     }
     if (peak !== null) {
@@ -5255,6 +5474,7 @@ async function doSearch() {
         lonInput.value = r.longitude;
         // 记录地点名，查询成功后会一起存进 localStorage
         window.__pickedPlace = [r.name, r.admin1].filter(Boolean).join('，');
+        coordSource = 'place';   // 地点标签以地名为准（有地名时 coordSource 不参与，保持同步而已）
         keywordInput.value = r.name || keyword;
         runQuery();
       });
@@ -5668,36 +5888,57 @@ ensureAlertBar();       // 第 1 层与第 2 层之间：条件提示条（默�
    十八、定位 / 缓存按钮 / 事件绑定 / 初始化
    ======================================================================= */
 
-function locateMe() {
-  if (!navigator.geolocation) {
-    setStatus('当前浏览器不支持定位功能，请手动输入坐标。', 'err');
-    return;
-  }
+/** 一组坐标写进输入框和 __pickedPlace（只改界面状态，不发请求、不写 localStorage）。
+ *  输入框保留 4 位小数：它是**发给接口的值**，不是给人读的数字（界面上的精度由 fmtCoord 管）。 */
+function applyCoords(lat, lon, placeName) {
+  latInput.value = Number(Number(lat).toFixed(4));
+  lonInput.value = Number(Number(lon).toFixed(4));
+  window.__pickedPlace = placeName || '';
+}
 
+/** 定位失败的中文说明；code 0 = 浏览器不支持（原生错误码从 1 起，所以 0 不会撞车）。
+ *  自动定位与手动定位共用同一张表，两处说法一致。 */
+const GEO_ERR_TEXT = {
+  0: '当前浏览器不支持定位功能，请手动输入坐标。',
+  1: '定位权限被拒绝，请在浏览器地址栏允许位置访问。',
+  2: '暂时无法获取位置信息，请检查设备定位是否开启。',
+  3: '定位超时，请重试或手动输入坐标。'
+};
+
+/**
+ * 取当前位置，包成 Promise —— 只管拿坐标，不管界面怎么显示。
+ * 浏览器不支持 / 权限被拒 / 超时一律 reject，由调用方决定降级（自动定位降级到默认地点，
+ * 手动定位降级到一条提示）。
+ */
+function geoPosition(timeoutMs) {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation || typeof navigator.geolocation.getCurrentPosition !== 'function') {
+      reject({ code: 0 });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve(pos),
+      err => reject(err || { code: 2 }),
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: GEO.MAX_AGE_MS }
+    );
+  });
+}
+
+function locateMe() {
   setStatus('<span class="spinner"></span>正在获取你的位置…');
   geoBtn.disabled = true;
 
-  navigator.geolocation.getCurrentPosition(
+  geoPosition(GEO.MANUAL_TIMEOUT_MS).then(pos => {
     // 成功：填入坐标并立即查询
-    (pos) => {
-      latInput.value = Number(pos.coords.latitude.toFixed(4));
-      lonInput.value = Number(pos.coords.longitude.toFixed(4));
-      window.__pickedPlace = '';
-      geoBtn.disabled = false;
-      runQuery();
-    },
+    applyCoords(pos.coords.latitude, pos.coords.longitude, '');
+    coordSource = 'geo';
+    geoBtn.disabled = false;
+    runQuery();
+  }).catch(err => {
     // 失败：按错误码给中文提示
-    (err) => {
-      geoBtn.disabled = false;
-      const map = {
-        1: '定位权限被拒绝，请在浏览器地址栏允许位置访问。',
-        2: '暂时无法获取位置信息，请检查设备定位是否开启。',
-        3: '定位超时，请重试或手动输入坐标。'
-      };
-      setStatus(map[err.code] || '定位失败，请手动输入坐标。', 'err');
-    },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-  );
+    geoBtn.disabled = false;
+    setStatus(GEO_ERR_TEXT[(err && err.code) || 2] || '定位失败，请手动输入坐标。', 'err');
+  });
 }
 
 /**
@@ -5712,6 +5953,27 @@ function refreshCacheInfo() {
     ? '同一坐标 10 分钟内重复查询会直接复用这 ' + n + ' 条数据，不再请求接口'
     : '当前没有可复用的缓存，查询会直接请求接口';
   clearCacheBtn.disabled = n === 0;
+}
+
+/**
+ * 页脚里的统一免责声明（第 1 屏收口：免责声明 4 处 → 2 处）。
+ * 全站只剩两处：**页脚**（这里）与**折叠区顶部**（评分卡的 .score-disclaimer）。
+ * 文本仍来自唯一常量 DISCLAIMER_NOTE（不手写第二份，改了常量两处一起变）；
+ * 节点如果被编辑器重新序列化抹掉，这里补建，保证页脚一定找得到这句话。
+ */
+function ensureFootDisclaimer() {
+  const foot = document.querySelector('footer');
+  if (!foot) return null;
+  let el = document.getElementById('footDisclaimer');
+  if (!el) {
+    el = document.createElement('span');
+    el.id = 'footDisclaimer';
+    const t = document.getElementById('updateTime');
+    if (t && t.parentNode === foot) foot.insertBefore(el, t);
+    else foot.appendChild(el);
+  }
+  el.textContent = DISCLAIMER_NOTE;
+  return el;
 }
 
 /* ---- 事件绑定 ---- */
@@ -5735,21 +5997,51 @@ clearCacheBtn.addEventListener('click', () => {
   setStatus('本地缓存已清空，下次查询会重新请求接口（页面上已显示的这批数据不受影响）。', 'ok');
 });
 
-/* ---- 初始化：优先用 localStorage 里的坐标，否则用默认值，并自动查询一次 ---- */
-(function init() {
-  const saved = loadCoords();
-  const lat = saved ? saved.lat : DEFAULT_LAT;
-  const lon = saved ? saved.lon : DEFAULT_LON;
+/* ---- 初始化：saved 坐标优先 → 否则先定位一次 → 定位失败才用默认坐标，最后自动查询一次 ----
+   以前"没有 saved 就直接用甘肃兰州"：陌生人第一次打开看到的是与自己无关的城市，
+   第一反应是关掉。页面本来就有定位能力，首次打开就应该先问一次位置。
 
-  latInput.value = lat;
-  lonInput.value = lon;
-  window.__pickedPlace = (saved && saved.name) ? saved.name : '';
+   两点取舍：
+   · 定位是异步的，只尝试一次、最多等 GEO.AUTO_TIMEOUT_MS。等待期间页面先空着（状态栏写清
+     在干什么），超时/被拒立刻用默认坐标出数 —— 不会因为用户不理会权限弹窗就一直不出数据。
+   · 万一用户在等待期间自己查了别的地点，那次查询说了算，定位结果作废（autoLocateStale）。
 
+   定位失败时**不往状态栏写原因**：紧接着的 runQuery 会把「正在请求…」和「数据就绪 · N/M」
+   写进去，同一帧内就覆盖掉了，写了也看不见（写了等于假动作）。
+   这时地点标签会从「当前位置」变回「默认地点」，那就是"这次没定位成"的如实交代；
+   想重试点「用我当前位置」——那条路失败时不会被覆盖，会明确报错。 */
+function initApp() {
   refreshCacheInfo();
-  if (saved) setStatus('已恢复上次保存的坐标，正在自动查询…');
+  ensureFootDisclaimer();      // 免责声明第 2 处：页脚（另一处在折叠区顶部评分卡）
+  autoLocateStale = false;
 
-  runQuery();
-})();
+  const saved = loadCoords();
+  if (saved) {
+    applyCoords(saved.lat, saved.lon, saved.name || '');
+    coordSource = saved.name ? 'place' : 'default';
+    setStatus('已恢复上次保存的坐标，正在自动查询…');
+    runQuery({ fromInit: true });
+    return;
+  }
+
+  // 先按默认坐标把输入框填好（任何时刻点「查询」都是合法的），再去尝试定位
+  applyCoords(DEFAULT_LAT, DEFAULT_LON, '');
+  coordSource = 'default';
+  setStatus('<span class="spinner"></span>正在尝试获取你的位置…');
+
+  geoPosition(GEO.AUTO_TIMEOUT_MS).then(pos => {
+    if (autoLocateStale) return;                 // 用户已经自己查过了，别再抢地点
+    applyCoords(pos.coords.latitude, pos.coords.longitude, '');
+    coordSource = 'geo';
+    runQuery({ fromInit: true });
+  }).catch(() => {
+    if (autoLocateStale) return;
+    // 被拒 / 超时 / 不支持 → 用默认坐标出数（原因见上面的说明，不写状态栏）
+    runQuery({ fromInit: true });
+  });
+}
+
+initApp();
 </script>
 </body>
 </html>
