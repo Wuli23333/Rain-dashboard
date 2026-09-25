@@ -868,7 +868,7 @@
       </div>
       <button id="searchBtn" class="btn-search" type="button" data-page-node-id="b2BUoXvrdOGAFmysrMEJwu">搜索</button>
     </div>
-    <div class="geo-note" id="geoNote">只收录城市与村庄，省 / 州名搜不到</div>
+    <div class="geo-note" id="geoNote">省 / 州名搜不到，请搜省内的城市</div>
     <div id="searchResults" class="search-results" data-page-node-id="f9SORKNQ3OHh86bEe6BHxU"></div>
   </section>
 
@@ -1013,25 +1013,34 @@ const GEO = {
    ⚠ 实测（2026-09-25，20 个查询 / 65 条结果）真正出现过的只有 6 个：
      `PPL`(31) / `PPLA`(4) / `PPLA2`(4) / `PPLC`(3) / `PPLA3`(2) / `PCLS`(1)。
      其余是 GeoNames 里可能存在、本轮未见的，一并列出以免落进"没标签"。 */
+/* ⚠ 值从字符串改成 `{ label, seat }`（2026-09-25 用户报 ①）：
+   `seat: true` = **有正式建制的政区，或政区政府的驻地**（"用户想要的那个东西"这一类）。
+   这个标记**只此一处定义** —— `dupNoticeHtml` 的降噪判据直接读它。
+   旧版在判据里另抄了一份 `=== 'PPLC' || /^PPLA\d*$/` 的正则，于是表里后来加的
+   `PPLG`（政区驻地）判据没跟上。**"表里定义了、判据没跟上"这类问题，
+   修法是让判据读表，而不是给判据补一条正则。** */
 const FEATURE_LEVELS = {
-  PPLC:  '首都',        // capital of a political entity
-  PCLS:  '自治政区',    // semi-independent political entity（港澳 / 格陵兰 / 波多黎各这类，不是居民点。
-                        // ⚠ 别写「特别行政区」—— 那对格陵兰 / 波多黎各是假的）
-  PPLG:  '政区驻地',    // seat of government of a political entity
-  PPLA:  '省会',        // seat of a first-order administrative division（省 / 州府）
-  PPLA2: '地区中心',    // seat of a second-order administrative division（地级市驻地）
-  PPLA3: '县驻地',      // seat of a third-order administrative division
-  PPLA4: '乡镇驻地',    // seat of a fourth-order administrative division
-  PPL:   '村镇',        // populated place —— 村与镇共用的兜底类别
-  PPLL:  '村',          // populated locality —— 比 PPL 小
-  PPLX:  '城区',        // section of populated place
-  PPLF:  '农场村',      // farm village
-  PPLR:  '宗教聚落',    // religious populated place
-  PPLS:  '聚落群',      // populated places
-  PPLH:  '历史地名',    // historical populated place
-  PPLCH: '旧都',        // historical capital of a political entity
-  PPLQ:  '已废弃',      // abandoned populated place
-  PPLW:  '已毁'         // destroyed populated place
+  PPLC:  { label: '首都',       seat: true  },  // capital of a political entity
+  PCLI:  { label: '国家',       seat: true  },  // independent political entity（实测：搜「美国」/「France」/「Japan」会返回它）
+  PCLD:  { label: '属地',       seat: true  },  // dependent political entity
+  PCLF:  { label: '自由联合邦', seat: true  },  // freely associated state
+  PCLS:  { label: '自治政区',   seat: true  },  // semi-independent political entity（港澳 / 格陵兰 / 波多黎各。
+                                                // ⚠ 别写「特别行政区」—— 那对格陵兰 / 波多黎各是假的）
+  PPLG:  { label: '政区驻地',   seat: true  },  // seat of government of a political entity
+  PPLA:  { label: '省会',       seat: true  },  // seat of a first-order administrative division（省 / 州府）
+  PPLA2: { label: '地区中心',   seat: true  },  // seat of a second-order administrative division（地级市驻地）
+  PPLA3: { label: '县驻地',     seat: true  },  // seat of a third-order administrative division
+  PPLA4: { label: '乡镇驻地',   seat: true  },  // seat of a fourth-order administrative division
+  PPL:   { label: '村镇',       seat: false },  // populated place —— 村与镇共用的兜底类别
+  PPLL:  { label: '村',         seat: false },  // populated locality —— 比 PPL 小
+  PPLX:  { label: '城区',       seat: false },  // section of populated place
+  PPLF:  { label: '农场村',     seat: false },  // farm village
+  PPLR:  { label: '宗教聚落',   seat: false },  // religious populated place
+  PPLS:  { label: '聚落群',     seat: false },  // populated places
+  PPLH:  { label: '历史地名',   seat: false },  // historical populated place
+  PPLCH: { label: '旧都',       seat: false },  // historical capital of a political entity
+  PPLQ:  { label: '已废弃',     seat: false },  // abandoned populated place
+  PPLW:  { label: '已毁',       seat: false }   // destroyed populated place
 };
 
 /* -------------------- 【自定义】特殊点地标表（T3 2026-09-25 用户要求）--------------------
@@ -2036,12 +2045,22 @@ function applyScoreFloor(scores) {
   if (!dims.length) return scores;
   const maxDim = Math.max.apply(null, dims);
   const floored = Math.max(scores.total, maxDim - SCORE_TOTAL_TRIM);
+  /* 托底说明的闸门：只有**档位被托上去**时才解释（2026-09-25 用户实测报）。
+     否则会出现「舒服的一天（3 分）」下面写着「总分已按最难受的一项托底（该项 8 分）」——
+     两个数**都是"舒服"**，没有任何读者困惑需要被解释。
+     可达场景（用户给的算例，已复算）：夏天 28℃ / 无风无雨 / 能见度好 →
+     温度不适 8 分、其余 0 → weighted = 8×0.25 = 2 → floor = max(2, 8−5) = 3 →
+     旧版 `3 > 2.5` 照样触发。
+     判"**档位是否变化**"而不是判差值大小：档位才是读者真正在看的东西。
+     ⚠ `scoreVerdict` 是函数声明、会提升，所以放在它前面调用不影响。 */
+  const before = scoreVerdict(scores.total);
+  const after  = scoreVerdict(floored);
   return Object.assign({}, scores, {
     total: floored,
-    /* 触发时留个记号：渲染层要说明"总分是被最难的那一项托上来的"，
-       否则用户会奇怪"几条分都不高，总分怎么这么难看"。
-       加 0.5 的门槛：四舍五入后看不出差别时不显示这句话，免得变成噪音。 */
-    flooredBy: floored > scores.total + 0.5 ? maxDim : null
+    /* 两层门槛：① 差值 > 0.5（四舍五入后看不出差别时不必解释）；
+       ② **档位确实变了**（`after.name !== before.name`）。缺 ② 就会出现"解释一个不存在的困惑"。 */
+    flooredBy: (floored > scores.total + 0.5 && after && before && after.name !== before.name)
+      ? maxDim : null
   });
 }
 
@@ -2407,9 +2426,13 @@ function findStartIndex(timeArr, tz) {
   return idx < 0 ? 0 : idx;
 }
 
-/** 云量 → 天空状况中文描述 */
+/** 云量 → 天空状况中文描述
+    ⚠ 2026-09-25 用户报 ②：旧写法 `Number(cloud) || 0` 把"缺数据"和"云量 0"变成了同一个值，
+    于是**没有云量数据时页面说「晴」** —— 0 在这里恰好是个"看起来合理"的答案。
+    缺失一律返回「—」（与全站"缺失不当 0"的约定一致）。 */
 function skyText(cloud) {
-  const c = Number(cloud) || 0;
+  const c = numOrNull(cloud);
+  if (c === null) return '—';
   if (c < CLOUD_TIERS.CLEAR_MAX)    return '晴';
   if (c < CLOUD_TIERS.PARTLY_MAX)   return '少云';
   if (c < CLOUD_TIERS.MOSTLY_MAX)   return '多云';
@@ -3306,8 +3329,11 @@ function fmtTemp(c) {
  * 缺数据返回「—」，绝不用 0 顶替。
  */
 function fmtCoord(n) {
-  if (n === null || n === undefined || n === '' || Number.isNaN(Number(n))) return '—';
-  return Number(n).toFixed(PRECISION.COORD);
+  /* ⚠ 2026-09-25 用户报 ②：旧写法在这里**自己判空**，漏了空白串 —— `Number(' ')` 是 0、
+     不是 NaN，于是 `' '` 会渲染成 "0.00"（一个"看起来合理但错误"的坐标）。
+     改走 `numOrNull`（它明确挡掉 `v.trim() === ''`）："数字 → 文字"的出口就此统一。 */
+  const v = numOrNull(n);
+  return v === null ? '—' : v.toFixed(PRECISION.COORD);
 }
 
 /**
@@ -4614,7 +4640,12 @@ function tempOutfitText(tMin, tMax) {
     lo < OUTFIT_TIERS.POLAR_C ? '极地级防寒，尽量别出门' :
     lo < OUTFIT_TIERS.DEEP_C  ? '重装防寒，别露皮肤' :
     lo < OUTFIT_TIERS.COLD_C  ? '羽绒服，注意保暖' :
-    lo < OUTFIT_TIERS.CHILL_C ? '厚外套，早晚偏冷' :
+    /* ⚠ 2026-09-25 用户实测报（「早晚」说两遍）：这一档原来写的是「厚外套，早晚偏冷」，
+       而下面的 SWING 分支会再补一句「早晚添衣」—— 4~18℃ 这种秋季最普通的一天于是输出
+       「厚外套，早晚偏冷，早晚添衣」：**两段各自都对，叠在一起就是结巴**。
+       撞的是**这一档**，所以只改这一档：把"早晚"的职责留给 SWING 那句。
+       （穷举扫描见 scenario-stage3 的"全组合"块：输出里同一两字词不得出现两次。） */
+    lo < OUTFIT_TIERS.CHILL_C ? '厚外套就行' :
     lo < OUTFIT_TIERS.COOL_C  ? '外套或夹克' :
     lo < OUTFIT_TIERS.MILD_C  ? '薄外套就行' :
     lo < OUTFIT_TIERS.WARM_C  ? '长袖或薄衫' :
@@ -4625,7 +4656,11 @@ function tempOutfitText(tMin, tMax) {
       /* 36℃+ 的提醒优先于温差 —— 那种天说"添衣"是废话 */
       base += '，午后酷热防中暑';
     } else if (hi >= OUTFIT_TIERS.HOT_HI_C) {
-      base += '，注意防晒补水';
+      /* ⚠ 这里原来写「，注意防晒补水」，与羽绒服档的「羽绒服，注意保暖」撞出「注意…注意…」
+         （lo = −12 / hi = 30 这种"清晨零下、午后 30℃"的大陆性天气会命中）。
+         这是**穷举扫描**抓出来的第二处（用户只报了「早晚」那一处）——
+         改用「午后防晒补水」，与 SCORCH 档的「午后酷热防中暑」同一措辞风格。 */
+      base += '，午后防晒补水';
     } else if ((hi - lo) >= OUTFIT_TIERS.SWING_C && lo < OUTFIT_TIERS.SWING_LO_C) {
       /* ⚠ 2026-09-25 用户实测报：旧版只判 `温差 ≥ SWING_C`，
          于是 26.2~39.2℃ 也输出"早晚添衣" —— 最低 26.2℃ 是"早晚都热"。
@@ -6401,7 +6436,17 @@ function renderConclusion(ctx) {
     ⚠ 空串的含义是"这张表确实没收录这个代码"，**不是**"这个地点没有级别" ——
       所以 FEATURE_LEVELS 要把 GeoNames 的 P 类列全（见常量表上的注释）。 */
 function featureLevel(code) {
-  return FEATURE_LEVELS[String(code || '').toUpperCase()] || '';
+  const f = FEATURE_LEVELS[String(code || '').toUpperCase()];
+  return f ? f.label : '';
+}
+
+/** 这个 feature_code 是不是**建制政区 / 政区驻地**（"用户想要的那个东西"这一类）？
+    ⚠ 判据**只读 FEATURE_LEVELS 的 `seat` 标记**，不在别处再抄一份 code 列表 ——
+      旧版 `dupNoticeHtml` 里硬编码 `=== 'PPLC' || /^PPLA\d*$/`，
+      后来表里加了 `PPLG`（政区驻地），判据没跟上（2026-09-25 用户报 ①）。 */
+function featureIsSeat(code) {
+  const f = FEATURE_LEVELS[String(code || '').toUpperCase()];
+  return !!(f && f.seat);
 }
 
 /** 数值 → 最多一位小数的字符串，**不补零**
@@ -6433,24 +6478,30 @@ function popText(pop) {
       ① 所有结果**同名且严格全等**（`every`，不做模糊匹配 —— 搜 `texas` 返回的
          `Colfax` / `East Texas` 名字并不全等，所以不会触发）；
       ② `admin1` **去重后 ≥ 2 个**（提示里列举去重后的省份）；
-      ③ 降噪条件：列表里没有任何一条是**建制驻地**（`PPLC` 或 `PPLA*`）时，才提示重名。
+      ③ 降噪条件：列表里没有任何一条是**建制政区 / 政区驻地**（`featureIsSeat`）时，才提示重名。
          为什么用它：这个条件要回答的不是"级别够不够高"，而是
          **"用户想要的那个东西，在不在这个列表里"** ——
            搜「义乌」→ `PPLA3`（县城），那就是他要的 → 不提示
            搜「某某镇」→ `PPLA4`，那也是他要的 → 不提示
+           搜「美国」→ `PCLI`（国家），同样是他要的 → 不提示
            搜「山东」→ 全是 `PPL` 村庄，没有一个是建制驻地 → 提示
          收窄到 `PPLC`/`PPLA`/`PPLA2` 会让"搜义乌"也弹提示，那就成了噪音。
-    ⚠ 判据取 `PPLA*` 通配（含 PPLA3 县驻地 / PPLA4 乡镇驻地）+ `PPLC`，**故意不收窄**。 */
+    ⚠ 判据**读 `FEATURE_LEVELS` 的 `seat` 标记**（2026-09-25 用户报 ①）：
+      旧版在这里硬编码 `=== 'PPLC' || /^PPLA\d*$/`，表里后来加的 `PPLG`（政区驻地）
+      判据没跟上 —— "表定义了、判据没跟上"要靠**读表**解决，不是给判据补一条正则。 */
 function dupNoticeHtml(list) {
   if (!list || list.length < 2) return '';
   const first = list[0].name;
   if (!first || !list.every(r => r.name === first)) return '';
-  if (list.some(r => r.feature_code === 'PPLC' || /^PPLA\d*$/.test(String(r.feature_code || '')))) return '';
+  if (list.some(r => featureIsSeat(r.feature_code))) return '';
   const provs = [...new Set(list.map(r => r.admin1).filter(Boolean))];
   if (provs.length < 2) return '';
+  /* ⚠ 文案里的"只收录城市与村庄"也一起改掉了（2026-09-25）：实测搜「美国」/「France」/「Japan」
+     会返回 `PCLI`（国家），"只收录城市与村庄"是个**全称断言**、当场就是假话。
+     换成"居民点与政区"—— 两类都被实测覆盖，且与 `FEATURE_LEVELS` 的分类对得上。 */
   return '<div class="dup-note">「' + escapeHtml(first) + '」是常见重名，以上 ' + list.length +
     ' 条分别在 ' + provs.map(v => escapeHtml(v)).join('、') +
-    '。本服务只收录城市与村庄，不收录省 / 州这类行政区，可以搜省内的城市。</div>';
+    '。本服务只收录居民点与政区，不收录省 / 州这类行政区，可以搜省内的城市。</div>';
 }
 
 async function doSearch() {
