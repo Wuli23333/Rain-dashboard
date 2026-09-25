@@ -617,8 +617,7 @@
   .advice-list li.warn::before   { background: var(--warn); }
   .advice-list li.danger::before { background: var(--danger); }
 
-  /* 结论卡片（.conclusion-grid / .umbrella / .alert 等）的样式在脚本里注入，
-     原因见脚本「结论卡片的样式与结构」一节：body 会被编辑器重新序列化 */
+  /* 结论卡片的样式在脚本里注入，     原因见脚本「结论卡片的样式与结构」一节：body 会被编辑器重新序列化 */
 
   /* ==================== 页脚 ==================== */
   footer {
@@ -773,7 +772,8 @@
   .input-body { padding-top: 16px; }
   .input-body .card:last-child { margin-bottom: 0; }
 
-  /* L1：固定 3 张卡 —— 宽屏三列一行，窄屏两列（第三张换行） */
+  /* L1：固定 CORE_CARD_COUNT 张卡 —— 宽屏三列一行，窄屏两列（第三张换行）。
+   张数只认常量，注释不重复写数字（改常量不必回来改注释）。 */
   .kpi-grid.core-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   @media (max-width: 880px) {
     .kpi-grid.core-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -938,7 +938,10 @@ const GEO = {
      所以"等不到"的代价为零，而"多等几秒"的代价是位置更新更慢。 */
   AUTO_TIMEOUT_MS:   3000,
   MANUAL_TIMEOUT_MS: 10000,  // 点「用我当前位置」：用户是主动在等的，可以多等一会儿
-  MAX_AGE_MS:        60000   // 1 分钟内刚拿到过的位置直接复用，不再唤醒 GPS
+  MAX_AGE_MS:        60000,  // 1 分钟内刚拿到过的位置直接复用，不再唤醒 GPS
+  /* 地名搜索一次要几条候选。原先这个 5 只写在请求参数里、
+     注释里另写一个"5"—— 两处会各自漂移。现在只认这一个常量。 */
+  CAND_COUNT:        5
 };
 
 const TZ = 'Asia/Shanghai';    // 接口固定使用北京时间，前端展示也按它对齐
@@ -1231,7 +1234,6 @@ const UMBRELLA_PROB_PCT = 50;
      ALERT_THRESHOLD.HOUR_MM (16)  —— 提示条"短时强降水"（更严格）
      INTENSITY_DANGER_MM (5) 见下  —— 结论区横幅"可能有短时强降水"+ 红配色门槛 */
 const INTENSITY_DANGER_MM = 5;   // 最大小时雨强 > 5 → 追加"短时强降水"提醒 + 卡红色
-const INTENSITY_WARN_MM   = 1;   // 最大小时雨强 > 1 → 卡黄色（介于 1~5 之间）
 const STRONG_HOUR_SHOW_MM = 0.5; // 最大小时雨强 ≥ 0.5 → 结论句才补"最强的一小时出现在…"
 
 /* 【经验值】模式一致性（三个模型 24h 雨量）的分歧阈值 */
@@ -1291,8 +1293,8 @@ const REL_DIV_TIERS = {
    -------------------------------------------------------------------------
    这一整块都是"自造"的：风力系数、评分分档、评分权重、偏好放大系数，
    全部是【自定义】经验值，没有任何国家 / 国际标准背书，也没有物理公式依据。
-   免责声明（DISCLAIMER_NOTE）**只挂一处**：页脚（ensureFootDisclaimer）。原为两处，
-   折叠区顶部评分卡（renderScoreSection）—— 2026-09-24 第 1 屏收口，从 4 处减到 2 处，
+   免责声明（DISCLAIMER_NOTE）**全站唯一一处：页脚**（ensureFootDisclaimer）。
+   历史：原 4 处 → 第 1 屏收口减到 2 处 → 分层重组撤掉评分卡那处 → 只剩页脚。
    不是删掉这句话，而是搬家（建议卡底部 / 提示条尾部 / 降雨体感卡页脚三处撤掉）。
    ========================================================================= */
 
@@ -1439,12 +1441,27 @@ const SCORE_DIM_REASON = {
 };
 
 /* -------------------- 【自定义】淋湿风险档位（按有效雨强） --------------------
-   综合建议副句里的"淋湿风险"用这四档；勾了「有伞」就整体下调一档（最低档不再降）。 */
+   综合建议副句里的"淋湿风险"用这四档；勾了「有伞」就整体下调一档（最低档不再降）。
+
+   ⚠ **四档一律不含"伞"字**（2026-09-24 N2）：
+   原来首档「有伞基本不会湿」与末档「伞基本挡不住…」带伞，于是
+   `synthesizedFeelLine` 不得不用 `indexOf('伞')` 在**运行时**把它们滤掉、
+   再退回 `lv.feel` —— 结果那两档的 L0 体感句与 L1 卡② 的 hint **逐字重复**
+   （「短时强降水，倾盆，路面出现水流，挡不住」两处一模一样，相隔不到 3 厘米）。
+   现在把措辞改成无伞版本，过滤永远不触发、回退永远不走，
+   契约由**常量表本身**保证，不再在字符串里猜语义。 */
 const WET_RISK_LEVELS = [
-  { max: 2.5,      text: '有伞基本不会湿' },
+  /* 2026-09-24 用户拍板（A 方案）：断点与 RAIN_FEEL_LEVELS **对齐**，中间补一档。
+     原因：原来 1 档文案（max 2.5「基本淋不透」）要覆盖 RAIN_FEEL 的 4 档
+     （无感 / 毛毛细雨 / 很小的雨 / 小雨），而"很小的雨"已经在说"走久了衣服发潮"、
+     "小雨"在说"几分钟就把衣服打潮" —— 于是同屏出现
+     L0「小雨，基本淋不透」vs L1「小雨，几分钟就把衣服打潮」这种**反话**。
+     现在 0.5~2.5 单独一档「走一会儿就发潮」，与 feel 同向。 */
+  { max: 0.5,      text: '基本淋不透' },
+  { max: 2.5,      text: '走一会儿就发潮' },
   { max: 8,        text: '鞋会湿，建议防水鞋' },
   { max: 16,       text: '裤子也会湿' },
-  { max: Infinity, text: '伞基本挡不住，尽量别出门' }
+  { max: Infinity, text: '基本挡不住，尽量别出门' }
 ];
 
 /* -------------------- 【自定义】偏好设置 --------------------
@@ -1462,11 +1479,11 @@ const PREF_DEFS = [
   { key: 'cold',     label: '我怕冷',          hint: '温度不适权重 ×1.5' }
 ];
 
-/* 统一免责声明（用户指定原文）。全站只挂 **一处**：
-   ① 页脚 —— ensureFootDisclaimer()
-   ② 折叠区顶部2026-09-24 分层重组时把评分卡里那处（.score-disclaimer）撤掉了
-   2026-09-24 第 1 屏收口：原为 4 处（+ 建议卡底部 / 提示条尾部 / 降雨体感卡页脚），
-   按要求减到 2 处 —— 是搬家不是删内容，全站仍找得到这句话。 */
+/* 统一免责声明（用户指定原文）。**全站唯一一处：页脚**（ensureFootDisclaimer()）。
+   历史（别再写成现状）：原 4 处 → 2026-09-24 第 1 屏收口减到 2 处
+   （撤掉建议卡底部 / 提示条尾部 / 降雨体感卡页脚）→ 分层重组又把评分卡里那处
+   （.score-disclaimer）撤掉 → 只剩页脚一处。
+   是搬家不是删内容：全站仍找得到这句话。 */
 const DISCLAIMER_NOTE =
   '体感与评分基于自定义映射规则与权重，非国家标准，因人而异，仅供参考。';
 
@@ -1573,7 +1590,7 @@ const P90_IS_NOT_WORST_NOTE = '这只是集合预报里的偏多情形，不代�
    既不诚实也难读；回退后短、完整、不撒谎。判据在 synthesizedFeelLine。 */
 const FEEL_LINE_MAX_CHARS = 20;
 
-/* L1 核心卡的固定张数（协议：3 张，一张不多 —— 2026-09-24 分层重组由 6 改 3）。
+/* L1 核心卡的固定张数（协议：一张不多 —— 2026-09-24 分层重组由 6 改 3，值见本常量）。
    骨架屏与正式渲染都引用它 —— 改这一处，两边一起改，
    不会出现"骨架与真卡张数不一致"的跳变。 */
 const CORE_CARD_COUNT = 3;
@@ -1602,7 +1619,10 @@ function wmoInfo(code) {
     { text: '未收录代码 ' + c, wet: false, cls: 'c-muted' };
 }
 
-function rainGrade24h(mm) { return levelOf(RAIN_GRADE_24H, mm); }
+/* N1①（2026-09-24 用户报）：quantile 现在对空数组返回 null，所以累计量可能为 null。
+   本函数必须对 null 安全 —— 否则调用处取 .name / .cls 会抛错（整页崩）。
+   缺数据时给中性档（名字是"—"），不冒充任何雨量档。 */
+function rainGrade24h(mm) { return levelOf(RAIN_GRADE_24H, mm) || { name: '—', cls: 'c-muted' }; }
 function feelsLevel(t)    { return levelOf(FEELS_LEVELS, t); }
 function gustLevel(v)     { return levelOf(GUST_LEVELS, v); }
 
@@ -1658,7 +1678,11 @@ function windCombine(speed, gust) {
 function windCoeff(w) {
   const n = numOrNull(w);
   if (n === null) return null;
-  return Math.max(0, piecewise(WIND_COEFF_STOPS, n));
+  /* ⑧：显式接住 piecewise 可能的 null —— `Math.max(0, null) === 0`，
+     会把"缺数据"静默当成"无风力放大"。这里 n 已验证非 null、piecewise 理论上不会返回 null，
+     但按"返回 null 的函数，其调用点必须显式处理"的规则写成显式形式，不依赖跨函数推理。 */
+  const pw = piecewise(WIND_COEFF_STOPS, n);
+  return pw === null ? 0 : Math.max(0, pw);
 }
 
 /** 有效雨强 = 小时雨强 × (1 + 风力系数)；风数据缺失时系数按 0（退化为原始雨强） */
@@ -1872,22 +1896,6 @@ function cacheCount() {
 
 /* 结论区专用样式（深色主题下的卡片、横幅、提示条） */
 const CONCLUSION_CSS = `
-.conclusion-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(152px, 1fr));
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.cn-item {
-  background: rgba(148, 163, 184, 0.07);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 11px 13px;
-}
-.cn-item .cn-label { font-size: 12px; color: var(--muted); margin-bottom: 5px; }
-.cn-item .cn-value { font-size: 19px; font-weight: 700; letter-spacing: .2px; line-height: 1.35; }
-.cn-item .cn-value .unit { font-size: 11.5px; font-weight: 500; color: var(--muted); margin-left: 3px; }
-.cn-item .cn-sub { font-size: 11.5px; color: var(--muted); margin-top: 5px; line-height: 1.6; }
 
 .umbrella {
   display: flex;
@@ -1932,7 +1940,6 @@ const CONCLUSION_CSS = `
 @media (max-width: 560px) {
   .umbrella { font-size: 14px; }
   .umbrella .u-note { margin-left: 0; width: 100%; text-align: left; }
-  .cn-item .cn-value { font-size: 17px; }
 }
 `;
 
@@ -1946,10 +1953,14 @@ function injectConclusionStyles() {
 }
 
 /** 搭出结论区的内部结构：
-    [主结论句] → [四项指标] → [带伞建议] → [模式一致性] → [补充提示] → [补充列表] */
+    [主结论句] → [带伞建议] → [模式一致性] → [补充提示] → [补充列表] */
 function buildConclusionLayout() {
   const card = document.getElementById('conclusionCard');
-  if (!card || document.getElementById('conclusionGrid')) return;   // 已经建好就不重复建
+  /* 幂等哨兵用 `umbrellaBox`（2026-09-24 B5）：
+     原来拿 `conclusionGrid` 当哨兵，而那是个**空容器** —— 它一撤掉，
+     这个判断就永远为真，`buildConclusionLayout()` 每次调用都会重复插入节点。
+     `umbrellaBox` 是本函数建的、且会一直存在的节点，适合当哨兵。 */
+  if (!card || document.getElementById('umbrellaBox')) return;
 
   const mk = (tag, id, cls) => {
     const el = document.createElement(tag);
@@ -1960,10 +1971,10 @@ function buildConclusionLayout() {
 
   const advice = document.getElementById('adviceBox');   // 列表已存在，新节点都插在它前面
   /* ① 四项关键指标：2026-09-24 分层重组后这块**确定不再使用**
-     （四项指标与 L1/L2 完全重复，已整块撤掉）。既然确定不用就当场收起 ——
-     留一个空网格会凭空多出 `.conclusion-grid { margin-bottom: 14px }` 的留白。 */
-  const grid   = mk('div', 'conclusionGrid', 'conclusion-grid');
-  grid.style.display = 'none';
+     （四项指标与 L1/L2 完全重复，已整块撤掉）。
+     B5（2026-09-24 用户拍板）：**连空网格一起撤掉**（原来只是 display:none）——
+     留一个永远为空的容器，既多一份 `.conclusion-grid` 的留白风险，
+     又会把这个函数的幂等哨兵永久占住（见上面的说明）。 */
   const umbr   = mk('div', 'umbrellaBox');                        // ② 带伞建议
   const agree  = mk('div', 'agreeBox');                           // ③ 模式一致性
   /* ④ 补充提示小标题：**按内容显隐**（见 renderConclusion 末尾）。
@@ -1981,7 +1992,6 @@ function buildConclusionLayout() {
   }
 
   // 按视觉顺序插入（每次 insertBefore 都锚在 adviceBox 上，顺序会自动保持）
-  card.insertBefore(grid, advice);
   card.insertBefore(umbr, advice);
   card.insertBefore(agree, advice);
   card.insertBefore(sub, advice);
@@ -2013,7 +2023,7 @@ const ensMemberCount  = document.getElementById('ensMemberCount');
 const ensNote         = document.getElementById('ensNote');
 const verdictBox      = document.getElementById('verdictBox');
 const adviceBox       = document.getElementById('adviceBox');
-const conclusionGrid  = document.getElementById('conclusionGrid');
+/* B5：conclusionGrid 的 DOM 引用已随之删除（容器撤掉后它必为 null，是死变量） */
 const conclusionSub   = document.getElementById('conclusionSub');
 const umbrellaBox     = document.getElementById('umbrellaBox');
 const agreeBox        = document.getElementById('agreeBox');
@@ -2062,7 +2072,13 @@ function fmt(num, n = 1) {
   return Number(num).toFixed(n).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 }
 
-/** 数组求和（null / undefined 按 0 处理） */
+/** 数组求和（null / undefined **按 0 处理**）
+ *
+ * ⚠ 只用于"值本身可以合法为 0"的场合（如逐小时雨量数组）。
+ * **不要**拿它累加可能含 null 的序列 —— 那会把"某个小时一个模型都没给值"
+ * 算成 0 mm，从而系统性低估累计量（2026-09-24 N1 的同类问题，用户报的 ①）。
+ * 那种场合用 `sumSeg()`：跳过 null；整段无有效值 → 返回 null。
+ * （`stats.p10/p50/p90` 现在可能含 null，因为 quantile 对空数组返回 null。） */
 function sum(arr) {
   return (arr || []).reduce((a, b) => a + (Number(b) || 0), 0);
 }
@@ -2094,7 +2110,10 @@ function minOf(arr) {
 
 /** 分位数（线性插值），传入已升序排列的数组 */
 function quantile(sorted, q) {
-  if (!sorted.length) return 0;
+  /* ⚠ N1：空数组**必须返回 null**，不能返回 0。
+     返回 0 等于宣称"这个分位数是 0（不下雨）"，而真相是"这个小时没有有效成员值"。
+     下游（ensP10/ensP50/ensP90 → sum/显示）都按 numOrNull 语义处理 null。 */
+  if (!sorted.length) return null;
   const pos  = (sorted.length - 1) * q;
   const base = Math.floor(pos);
   const rest = pos - base;
@@ -2194,9 +2213,9 @@ function urlEnsemble(lat, lon) {
   return API_ENSEMBLE + '?' + p.toString();
 }
 
-/** 3) 地名转坐标：最多返回 5 条候选 */
+/** 3) 地名转坐标：最多返回 GEO.CAND_COUNT 条候选 */
 function urlGeocode(keyword) {
-  const p = new URLSearchParams({ name: keyword, count: 5, language: 'zh' });
+  const p = new URLSearchParams({ name: keyword, count: GEO.CAND_COUNT, language: 'zh' });
   return API_GEOCODE + '?' + p.toString();
 }
 
@@ -2348,15 +2367,21 @@ function ensembleStats(ens) {
   for (let i = 0; i < n; i++) {
     const vals = [];
     for (let m = 0; m < ens.members.length; m++) {
-      const v = ens.members[m][i];
-      if (v !== null && v !== undefined) vals.push(Number(v) || 0);
+      /* N1：缺值的成员**不参与这个小时的分位数**（原来 `Number(v) || 0` 把它当 0，
+         会把这个小时的 P10/P50/P90 整体压低，等于"用缺失数据编出一个偏少的雨量"）。
+         这个小时一个有效成员都没有时，vals 为空 → quantile 返回 null。 */
+      const mv = numOrNull(ens.members[m][i]);
+      if (mv !== null) vals.push(mv);
     }
     vals.sort((a, b) => a - b);
     p10.push(quantile(vals, 0.10));
     p50.push(quantile(vals, 0.50));   // 中位数 → 图 3 的粗线
     p90.push(quantile(vals, 0.90));
-    mean.push(vals.length ? sum(vals) / vals.length : 0);
-    maxArr.push(vals.length ? vals[vals.length - 1] : 0);
+    /* ⑤（2026-09-24 用户报）：同一行里 p10/p50/p90 已经返回 null 了，这两行却还在 0 兜底 ——
+       "这个小时一个成员都没给值"于是变成「集合均值：0 mm」/「最大：0 mm」（= 没下雨）。
+       fmt/round2 对 null 都渲染「—」，所以直接返回 null 即可。 */
+    mean.push(vals.length ? sum(vals) / vals.length : null);
+    maxArr.push(vals.length ? vals[vals.length - 1] : null);
   }
   return { p10, p50, p90, mean, max: maxArr };
 }
@@ -2546,6 +2571,13 @@ let retryCount = 0;    // 连续重试次数，成功后归零，用于在提示
    initApp 会先发一次定位、等它回来再出数；如果用户在等待期间自己查了别的地点，
    那次定位的结果就不该再把地点抢回去（否则用户刚选的城市会被无声覆盖）。 */
 let autoLocateStale = false;
+/* N7（2026-09-24）：runQuery 的并发序号。
+   C9 之后 initApp 会"① 先用默认坐标查 → ③ 定位成功再静默重查"，
+   而定位命中缓存时（maximumAge 60s）是毫秒级返回 —— 两次查询会**并行**跑。
+   两个 runQuery 各自 setLoading、各自写 lastCtx，会出现"骨架闪回"，
+   甚至"输入框是 A、卡片是 B"（谁后返回谁说了算）。
+   取号后：只有**最新**那次才渲染，过期的那次直接丢弃。 */
+let querySeq = 0;
 
 /** 请求失败时的状态栏：错误原因 + 技术细节 + 重试按钮 */
 function setStatusError(err) {
@@ -2582,6 +2614,8 @@ async function onRetry() {
 }
 
 async function runQuery(opts) {
+  /* N7：取号。await 回来后若已不是最新号，直接丢弃（不渲染、不写 lastCtx）。 */
+  const seq = ++querySeq;
   const isRetry = !!(opts && opts.isRetry);
   const isInit  = !!(opts && opts.fromInit);
   if (!isRetry) retryCount = 0;      // 手动发起的新查询，重新计数
@@ -2628,6 +2662,10 @@ async function runQuery(opts) {
 
     // 5) 整理成统一上下文，再交给各渲染函数
     //    集合没取到 → 传 null，各渲染函数按"数据不可用"降级（不假装成 0，也不清空页面）
+    /* N7 守卫：等待期间又发起了新查询（用户在定位返回前自己点了查询，
+     或定位成功触发了静默重查）→ 这次的结果作废，交给最新那次渲染。 */
+    if (seq !== querySeq) return;
+
     const ctx = buildContext(fc.data, en.ok ? en.data : null);
     primeModelCache(ctx);        // 一次算齐派生量，供所有渲染函数只读（C1）
     lastCtx = ctx;               // 记下来：切换时间范围时直接用它重绘，不再请求接口、不再消耗配额
@@ -2653,7 +2691,7 @@ async function runQuery(opts) {
         tag(fc) + tag(en) +
         `<span class="tag">${ctx.models.length} 个模型</span>` +
         `<span class="tag">${ctx.ens.members.length} 个集合成员</span>` +
-        (window.__chartLibMissing ? '<span class="tag miss">⚠ 图表库未加载，图表暂不可用</span>' : '') +
+        (window.__chartLibMissing ? '<span class="tag miss">⚠ 图表库代码未执行，图表暂不可用</span>' : '') +
         `<br>⚠️ ${missing} 未返回数据：集合相关的指标显示为「数据不可用」，其余照常。点「查询」可再试一次。`,
         'warn'
       );
@@ -2674,6 +2712,10 @@ async function runQuery(opts) {
     // 查询成功 → 输入卡自动收起，第一屏回到干净状态（第 11 条·坑 3）
     collapseInputFold();
   } catch (err) {
+    /* ④（2026-09-24 用户报）：过期查询的**失败**同样不许动页面 ——
+       否则它的红字错误会盖掉最新那一次的「数据就绪」。
+       （这里的 return 会先走 finally，所以下面的 finally 也必须带守卫。） */
+    if (seq !== querySeq) return;
     console.error(err);
     setLoading(false);
     // 失败时别把上一次的数据一起清掉：有旧数据就继续看旧的，只把错误说清楚
@@ -2695,7 +2737,9 @@ async function runQuery(opts) {
     setStatusError(err);         // 错误原因 + 技术细节 + 重试按钮
     expandInputFold();           // 失败 → 保持展开，让用户能看到自己填的坐标方便改（第 11 条·坑 3）
   } finally {
-    setLoading(false);
+    /* ④：只有**最新**那次查询有资格关掉加载态。
+       否则过期查询先回来时，会把还在加载的最新那次骨架提前撤掉。 */
+    if (seq === querySeq) setLoading(false);
   }
 }
 
@@ -2831,9 +2875,6 @@ function buildContext(forecast, ensemble) {
 
 const UNC_HOURS   = 48;     // 不确定性指标统一的时间窗口（小时）
 const UNC_RAIN_MM = 0.5;    // 全页唯一的"有雨"阈值（mm）：48 小时累计雨量高于它，才算有雨
-/* 「未来 24h 降雨（集合中位数）」那张卡的判据。它是 24 小时窗口，与上面的 48h 判据
-   不是同一个东西，所以单独命名 —— 免得日后有人把它和 UNC_RAIN_MM 当成同一个尺子改。 */
-const PERCEIVABLE_24H_MM = 0.5;
 
 /* 小时雨强的门槛（mm/小时）：一个小时里下到这么多，才算这一小时真的在下雨。
    量纲是"每小时下多猛"，和上面两个"多少小时里累计了多少毫米"不是同一个维度，
@@ -3054,11 +3095,12 @@ function computeUncertainty(ctx) {
     const series = modelSeries[key] && modelSeries[key].precipitation;
     if (!Array.isArray(series)) return;        // 字段缺失 → 这个模型不参与计算
 
-    const seg = series.slice(fStart, fStart + win).map(v => {
-      const n = numOrNull(v);
-      return n === null ? 0 : n;               // 单个坏点当 0，不牵连整列
-    });
-    if (!seg.length) return;
+    /* ⑥（2026-09-24 用户报）：原来把缺失逐点写成 0（注释"单个坏点当 0，不牵连整列"），
+       但全站其它地方现在统一是"缺失不进分子" —— 保留 0 会让 sumSeg **跳不过去**，
+       从而低估某个模型的 48h 总量，进而影响「降雨是否一致」与「雨量分歧」。
+       现在缺失保持 null，交给 sumSeg 跳过（峰值比较里 null 也不参与）。 */
+    const seg = series.slice(fStart, fStart + win).map(v => numOrNull(v));
+    if (!seg.length) return;          // 该模型这一段完全没有小时数据 → 不参与统计
 
     const total = sumSeg(seg);
 
@@ -3364,8 +3406,14 @@ function computeComfort(ctx) {
  * 一个要"这一段累计多少毫米"，一个要"这一段连续了几个小时"。
  *
  * 返回 [{ i, j, hours, total }]，i / j 为时间轴下标（含两端）。
- * 缺数据的小时按 0 处理（延续 averageAcrossModels 的口径），于是它会**打断**连续段
- * —— 这是保守方向：拿不到数据就不说"连着下了 N 小时"。
+ *
+ * 缺数据的小时**不算强降雨小时**，于是它会**打断**连续段 —— 这是保守方向：
+ * 拿不到数据就不说"连着下了 N 小时"。
+ *
+ * ⑨（2026-09-24 用户报）：原来这里写着"缺数据按 0 处理（延续 averageAcrossModels 的口径）"，
+ * **两个说法都已过时**：averageAcrossModels 现在跳过缺失；而本函数其实也不是"当 0" ——
+ * 它只是把 null 排除在"强降雨小时"之外。现在写成**显式判断**，
+ * 不再依赖 `null >= x === false` 这种隐式行为（意图要写在代码里，不是靠语言特性兜）。
  */
 function heavyRuns(series, start, count, threshold = HEAVY_HOUR_MM) {
   const out = [];
@@ -3373,6 +3421,10 @@ function heavyRuns(series, start, count, threshold = HEAVY_HOUR_MM) {
   let cur = null;
   for (let i = start; i < start + count && i < arr.length; i++) {
     const v = round2(arr[i]);
+    if (v === null) {                      // 缺数据 → 不算强降雨小时，且打断连续段
+      if (cur) { out.push(cur); cur = null; }
+      continue;
+    }
     if (v >= threshold - 1e-9) {           // 留浮点容差：平均后的 2.4999999 也算够
       if (!cur) cur = { i, j: i, hours: 0, total: 0 };
       cur.j = i; cur.hours++; cur.total += v;
@@ -3538,10 +3590,13 @@ function computeDecision(ctx, unc, comfort, prefs) {
   const avgProb   = averageAcrossModels(models, modelSeries, 'precipitation_probability');
   const wp = windowStats(avgPrecip, fStart, WIN);
   const wq = windowStats(avgProb,   fStart, WIN);
-  const total24      = wp.total;
-  const maxIntensity = wp.peak;
-  const maxIntTime   = maxIntensity > 0 && wp.peakIdx >= 0 ? fTime[wp.peakIdx] : null;
-  const peakProb     = Math.round(wq.peak);
+  /* ⚠ 这四个量都可能为 null（窗口内一个有效小时都没有，见 windowStats）。
+     下游一律用 `=== null` 判断，**不许让 null 参与算术/比较** ——
+     `null < 0.1` 与 `null > 0.1` 都是"合法的 JS"但都是错的（2026-09-24 N1）。 */
+  const total24      = numOrNull(wp.total);
+  const maxIntensity = numOrNull(wp.peak);
+  const maxIntTime   = maxIntensity !== null && maxIntensity > 0 && wp.peakIdx >= 0 ? fTime[wp.peakIdx] : null;
+  const peakProb     = wq.peak === null ? null : Math.round(numOrNull(wq.peak));
   const peakProbTime = wq.peakIdx >= 0 ? fTime[wq.peakIdx] : null;
 
   /* ---- 48h 口径（把握判据） ---- */
@@ -3587,9 +3642,15 @@ function computeDecision(ctx, unc, comfort, prefs) {
      体感句里**不出现"伞"字**：要不要带伞是动作句的职责，两句各说一件事，
      不会给出互相矛盾的建议（用户 2026-09-24 的硬约束）。 */
   const eff = comfort && numOrNull(comfort.effRainPeak);
+  /* N4（2026-09-24）：这里原来算的是 `wetRiskText(eff, p)` —— **带偏好**，
+     但唯一的消费者是 L0 的体感句，而体感句的硬约束是"不跟着『我有伞』把自己调轻"
+     （见 synthesizedFeelLine 的说明）。所以：
+       · 偏好参数去掉（传空偏好）；
+       · 结果**传给** synthesizedFeelLine（不再让它自己重算一次）——
+         从"两次调用 + 两处口径"收敛成一次。 */
   let wetRisk = null;
   if (eff !== null && eff > 0) {
-    const wet = wetRiskText(eff, p);
+    const wet = wetRiskText(eff, {});
     if (wet) wetRisk = wet;          // 注意：这里存的是**后果**原文，不再加"淋湿风险："前缀
   }
 
@@ -3606,12 +3667,20 @@ function computeDecision(ctx, unc, comfort, prefs) {
   }
 
   return {
-    action, confidence, headline, cls,
+    action, headline, cls,
+    /* `confidence` 是**把握分级的结构化形式**（high/mid/low/none）——
+       人话写在 headline 里，但机器可读的那一份只有这里，测试据此断言分级。
+       （N4 复核时一度以为它是死字段：页面渲染确实不读它，但测试读。） */
+    confidence,
     why: '依据：' + parts.join('；'),
-    feelLine: synthesizedFeelLine(comfort),
-    wetRisk,
+    feelLine: synthesizedFeelLine(comfort, wetRisk),   // N4：吃算好的那一份，不重算
+    /* N4（2026-09-24）：这里原来还返回 `wetRisk` 与 `WIN` 两个**死字段**，已删 ——
+       `wetRisk` 的注释写着"升格成 L0 体感句素材"，但它带偏好、而体感句不该跟偏好，
+       且真正读它的地方一个都没有；现在它只作**局部量**直接传给 synthesizedFeelLine
+       （口径一处、只算一次）。`WIN` 无人使用。
+       ⚠ `confidence` **不删**：页面渲染不读它，但测试用它断言把握分级（见上面的说明）。 */
     umbrellaText, umbrellaCls, umbrellaIcon, umbrellaNote, heavyRain,
-    total24, maxIntensity, maxIntTime, peakProb, peakProbTime, WIN
+    total24, maxIntensity, maxIntTime, peakProb, peakProbTime
   };
 }
 
@@ -3632,7 +3701,7 @@ function computeDecision(ctx, unc, comfort, prefs) {
  *    effRainPeakIndex 在无雨时是 undefined，只判 === null 就漏成了空句子），
  *    而是用**兜底形态**保证：每个分支都直接返回一句完整的话。
  */
-function synthesizedFeelLine(comfort) {
+function synthesizedFeelLine(comfort, wetRisk) {
   /* 降水序列整段拿不到：effRainPeak 为 null（computeComfort 的约定） */
   if (!comfort || comfort.effRainPeak === null || comfort.effRainPeak === undefined) {
     return '降水数据不可用';
@@ -3658,14 +3727,16 @@ function synthesizedFeelLine(comfort) {
 
   /* 传空偏好：体感句要陈述"雨本身会淋成什么样"，
      不跟着「我有伞」把自己调轻 —— 那会与动作句的把握打架。
-     ⚠ 硬约束（用户 2026-09-24）：体感句里**不许出现"伞"字**。
-     WET_RISK_LEVELS 里有两档带伞（首档"有伞基本不会湿"与最高档），
-     它们是对"伞够不够用"的判断，与动作句"要不要带伞"是同一件事 ——
-     两句并排就会出现「建议带伞　有伞基本不会湿」这种自相矛盾。
-     两道过滤都要留：`feel` 那道由常量表保证，`wetRaw` 这道防住 WET_RISK_LEVELS
-     日后被改出带伞的措辞（本函数不认识"伞"以外的任何业务语义）。 */
-  const wetRaw0 = wetRiskText(eff, {});
-  const wetRaw = (wetRaw0 && wetRaw0.indexOf('伞') < 0) ? wetRaw0 : null;
+     体感句里**不出现"伞"字**：要不要带伞是动作句的职责，两句各说一件事。
+
+     2026-09-24 N2：这里**不再做 `indexOf('伞')` 运行时过滤**。
+     原来 WET_RISK_LEVELS 有两档带伞，被滤掉后退回 `lv.feel` ——
+     于是那两档的 L0 体感句与 L1 卡② 的 hint **逐字重复**。
+     现在四档措辞本身就无伞（改在常量表里），契约由常量表保证，
+     比在字符串里猜语义干净（这也正是 B2 定下的做法）。 */
+  /* N4：优先用 computeDecision 已经算好的那一份（同一口径，少一次重算）。
+     只有单测直接调用（没传第二参数）时才自己算一次。 */
+  const wetRaw = (wetRisk !== undefined) ? wetRisk : wetRiskText(eff, {});
 
   /* 兜底取 lv.feel。
      2026-09-24 用户拍板修订后，`RAIN_FEEL_LEVELS` 只剩 `feel` 一个描述字段
@@ -3713,6 +3784,21 @@ function synthesizedFeelLine(comfort) {
  *
  * 注意只认「，」「。」；顿号「、」与间隔号「·」是并列成分，在那里断同样是断句。
  */
+/**
+ * 按标点截到最后一个完整子句。
+ *
+ * 契约（2026-09-24 N5 收紧）：**非空返回值一定 ≤ max**。
+ *   · 原串不超限 → 原样返回；
+ *   · 截得出来 → 返回截出的完整子句（≤ max）；
+ *   · **找不到可断处 → 返回空串 `''`**，明确表示"截不出来，请走下一级回退"。
+ * 原来最后一种情况返回**原串**（超长）—— 那等于把"闸门"漏了：
+ * 外层 `clipped.length > short.length` 一旦成立就会把超长原句交出去。
+ * 当前文案表下跑不到（要触发得让档名 ≥20 字，而那会让 short 也 >20），
+ * 但这段代码存在的唯一理由就是"日后有人把文案改长" —— 而那正是它失效的场景，
+ * 所以把保证放在 `clipSentence` 自己身上，不依赖外层的巧合。
+ *
+ * 注意只认「，」「。」；顿号「、」与间隔号「·」是并列成分，在那里断同样是断句。
+ */
 function clipSentence(s, max) {
   const str = String(s || '');
   if (str.length <= max) return str;
@@ -3720,7 +3806,7 @@ function clipSentence(s, max) {
   const lastComma = cut.lastIndexOf('，');
   const lastDot   = cut.lastIndexOf('。');
   const i = Math.max(lastComma, lastDot);
-  return i > 0 ? cut.slice(0, i) : str;   // 断在标点前（标点本身不含）
+  return i > 0 ? cut.slice(0, i) : '';   // 断在标点前；截不出来就交空串给下一级
 }
 
 /** 四张不确定性卡片的文案（含各种"数据不足"的降级写法）
@@ -3750,7 +3836,9 @@ function uncertaintyCards(ctx, u) {
      B5 之前这句被错挂到了概率卡上（方向正好相反），现在物归原主。 */
   cards.push({
     label: '降雨是否一致（48h）', value, cls,
-    note: note + tail + '　·　' + CARD5_SCOPE_NOTE
+    /* ④（2026-09-24 用户指出）：avail === 0 时这张卡已经在说"没有可用的模型数据"，
+         再挂"本卡只统计 3 个确定性模型…"就是噪音 —— 那个口径提示只在真有数字时才有意义。 */
+      note: u.avail === 0 ? note : (note + tail + '　·　' + CARD5_SCOPE_NOTE)
   });
 
   /* 卡片 1b｜48 小时降雨概率（2026-09-24 分层重组放回这里）
@@ -3877,21 +3965,21 @@ function renderKpis(ctx) {
   const { fStart, fHours, models, modelSeries, ens, eStart, stats } = ctx;
 
   /* 集合中位数：未来 24 小时 / 未来 7 天（集合时间轴覆盖 7 天） */
-  const p50_24  = sum(stats.p50.slice(eStart, eStart + 24));
-  const p50_all = sum(stats.p50.slice(eStart));
+  const p50_24  = sumSeg(stats.p50.slice(eStart, eStart + 24));
+  const p50_all = sumSeg(stats.p50.slice(eStart));
 
   /* 未来 24 小时的 P10 / P90 —— L2「往后几天呢？」的 24h 累计卡用。
      同样取自集合分位数，没有新造口径，只是以前没被单独取出来用。 */
-  const p10_24 = sum(stats.p10.slice(eStart, eStart + 24));
-  const p90_24 = sum(stats.p90.slice(eStart, eStart + 24));
+  const p10_24 = sumSeg(stats.p10.slice(eStart, eStart + 24));
+  const p90_24 = sumSeg(stats.p90.slice(eStart, eStart + 24));
 
   /* 未来 48 小时 / 未来 7 天的 P90 —— 第 3 层明细区"偏多情形"用（阶段一已算过 p90_48）
      2026-09-24 用户抓到：48 小时那张卡的副标题原来喂的是 p10_24/p90_24（**24 小时的数**），
      标题却写着 48 小时 —— 同一对数字被喂给了两张不同时间尺度的卡。所以补上 p10_48，
      48 小时的卡一律用 48 小时的数。 */
-  const p10_48  = sum(stats.p10.slice(eStart, eStart + 48));
-  const p90_48  = sum(stats.p90.slice(eStart, eStart + 48));
-  const p90_all = sum(stats.p90.slice(eStart));
+  const p10_48  = sumSeg(stats.p10.slice(eStart, eStart + 48));
+  const p90_48  = sumSeg(stats.p90.slice(eStart, eStart + 48));
+  const p90_all = sumSeg(stats.p90.slice(eStart));
 
   /* 未来 48 小时"有效降雨"概率
      口径与卡片 1 完全一致：成员 48 小时累计雨量 > UNC_RAIN_MM。
@@ -4123,7 +4211,8 @@ function coreCards(ctx, comfort) {
  */
 function tempOutfitText(tMin, tMax) {
   const lo = numOrNull(tMin), hi = numOrNull(tMax);
-  if (lo === null) return '气温数据不可用';  let base = lo >= OUTFIT_TIERS.WARM_C ? '短袖就行' :
+  if (lo === null) return '气温数据不可用';
+  let base = lo >= OUTFIT_TIERS.WARM_C ? '短袖就行' :
              lo >= OUTFIT_TIERS.MILD_C ? '薄外套就行' :
              lo >= OUTFIT_TIERS.COOL_C ? '外套或夹克' :
              lo >= OUTFIT_TIERS.COLD_C ? '厚外套，早晚偏冷' : '羽绒服，注意保暖';
@@ -4250,7 +4339,7 @@ function renderDetail(ctx, unc, comfort, b) {
      集合分位数给的是"偏多情形"，不是真实世界的极限值。 */
   const longCards = [
     { label: '未来 24 小时累计（集合中位数）',
-      value: b.ensUsable ? fmtAccum(b.p50_24) : '—', unit: b.ensUsable ? 'mm' : '',
+      value: (b.ensUsable && b.p50_24 !== null) ? fmtAccum(b.p50_24) : '—', unit: (b.ensUsable && b.p50_24 !== null) ? 'mm' : '',
       note: b.ensUsable
         ? `${rainGrade24h(b.p50_24).name}（GB/T 28592-2012）　·　80% 成员落在 ` +
           accumRangeText(b.p10_24, b.p90_24)
@@ -4258,23 +4347,25 @@ function renderDetail(ctx, unc, comfort, b) {
       cls: b.ensUsable ? rainGrade24h(b.p50_24).cls : 'c-muted' },
 
     { label: '未来 7 天累计（集合中位数）',
-      value: b.ensUsable ? fmtAccum(b.p50_all) : '—', unit: b.ensUsable ? 'mm' : '',
+      value: (b.ensUsable && b.p50_all !== null) ? fmtAccum(b.p50_all) : '—', unit: (b.ensUsable && b.p50_all !== null) ? 'mm' : '',
       note: b.ensUsable ? totalNote(b.p50_all) : '集合成员数据不可用',
       cls: b.ensUsable ? totalClass(b.p50_all) : 'c-muted' },
 
     { label: '未来 48 小时雨量（90% 成员不超过）',
-      value: b.ensUsable ? fmtQuant(b.p90_48) : '—', unit: b.ensUsable ? 'mm' : '',
+      value: (b.ensUsable && b.p90_48 !== null) ? fmtQuant(b.p90_48) : '—', unit: (b.ensUsable && b.p90_48 !== null) ? 'mm' : '',
       /* 副标题必须给**48 小时**的 P10~P90（与标题同一时间尺度）——
          原来是 24 小时的数，属于"页面撒谎"级别的不一致。 */
       note: b.ensUsable ? accumRangeText(b.p10_48, b.p90_48) : '集合成员数据不可用',
       cls: 'c-accent2' },
 
     { label: '未来 7 天雨量（90% 成员不超过）',
-      value: b.ensUsable ? fmtQuant(b.p90_all) : '—', unit: b.ensUsable ? 'mm' : '',
-      /* "这只是集合预报里的偏多情形…"已经写在**本组组标题**里了（P90_IS_NOT_WORST_NOTE），
-         同一组内不再重复第二遍（2026-09-24 用户指出）。这里只说这张卡独有的那半句：
-         正方向（它是什么）+ 对比（不是真实世界的极限值）。 */
-      note: b.ensUsable ? '集合成员里的偏多情形，不是真实世界的极限值' : '集合成员数据不可用',
+      value: (b.ensUsable && b.p90_all !== null) ? fmtQuant(b.p90_all) : '—', unit: (b.ensUsable && b.p90_all !== null) ? 'mm' : '',
+      /* N9（2026-09-24 用户再次指出）：上一轮只是**换了措辞**，"偏多情形 / 不是极限值"
+         与**本组组标题**（P90_IS_NOT_WORST_NOTE 原文）仍是同一件事说两遍 —— 等于没删。
+         现在真删：口径说明只由组标题承担（同一组内只留一处）；
+         这张卡的 label 已经写了"90% 成员不超过"，不再补任何口径话，
+         只在**数据不可用**时如实降级（那才是这张卡独有的信息）。 */
+      note: b.ensUsable ? '' : '集合成员数据不可用',
       cls: 'c-accent2' }
   ];
 
@@ -4431,7 +4522,7 @@ function renderDetail(ctx, unc, comfort, b) {
       cls: unc.avail < unc.totalWant ? 'c-warn' : 'c-ok' }
   );
 
-  /* ------- 组 1：有多大把握？（不确定性四卡 + 原 L1 卡⑤模型一致性合并） -------
+  /* ------- 组 1：有多大把握？（不确定性卡组 + 原 L1 卡⑤模型一致性合并） -------
      2026-09-24 分层重组：卡⑤不再独立成卡，它的"降雨是否一致 + 雨量分歧程度"
      与下面两张本来就是同一件事，合并后用 availNote 收尾。
      这里同时接收 L0 依据行压掉的三个分句（峰值时间跨度 / 预报覆盖小时数 /
@@ -4522,7 +4613,7 @@ function ensureAdviceCard() {
   feel.className = 'adv-feel';
 
   /* 原来还有一行 adv-foot（挂统一免责声明）。第 1 屏收口后免责声明只剩
-     页脚 + 折叠区顶部两处，这里整行撤掉 —— 建议卡下面只留「依据」一行小字，
+     （当时免责声明挂在页脚 + 折叠区顶部两处）这里整行撤掉 —— 建议卡下面只留「依据」一行小字，
      否则第一屏又是"一句话 + 两行小字"。 */
   card.appendChild(main);
   card.appendChild(feel);
@@ -4554,7 +4645,7 @@ function renderAdvice(decision) {
 }
 
 /**
- * 条件提示条：夹在 L0（一句话建议）与 L1（3 张核心卡）之间。
+ * 条件提示条：夹在 L0（一句话建议）与 L1（CORE_CARD_COUNT 张核心卡）之间。
  * 与 adviceCard 一样由脚本创建 —— 手写节点会被编辑器重新序列化时抹掉。
  * 默认 display:none：一条都不满足时它完全不占空间（用户明确要求）。
  */
@@ -4666,7 +4757,7 @@ function expandInputFold() {
 /**
  * 渲染条件提示条。
  * 规则、阈值、优先级全在文件顶部的 ALERT_RULES / ALERT_THRESHOLD 里，这里只负责排版：
- *   命中的按 prio 排序取前 3 条 → 横排成胶囊
+ *   命中的按 prio 排序取前 ALERT_THRESHOLD.MAX 条 → 横排成胶囊
  *   被挤掉的条数不静默丢弃，压成一行小尾巴「（还有 N 项，详见下方数据）」
  *   一条都没有 → 清空并隐藏，不留空白、不写"无提示"之类的占位
  * 文案与 title 里的阈值说明都来自常量，没有第三方文本，所以直接拼进 HTML。
@@ -4691,9 +4782,9 @@ function renderAlerts(comfort, prefs) {
     (a.more
       ? '<span class="alert-more">（还有 ' + a.more + ' 项，详见下方数据）</span>'
       : '');
-  /* 提示条尾部原来还挂一句统一免责声明，已按"4 处 → 2 处"撤掉：
+  /* 提示条尾部原来还挂一句统一免责声明，已按"4 处 → 1 处"撤掉：
      它就在第一屏、紧跟建议卡，和"第一眼看见建议"的目标冲突；
-     全站仍能在页脚与折叠区顶部（评分卡）找到同一句话。 */
+     现在全站只有页脚唯一一处能找到这句话（评分卡那处已撤）。 */
   bar.style.display = '';
 }
 
@@ -4864,7 +4955,7 @@ function scoreWeightsText() {
   }).join(' ｜ ');
 }
 
-/** 渲染评分卡：4 条分项分 + 总分条形 + 权重说明 + 两行免责（自定义权重 / 统一免责） */
+/** 渲染评分卡：SCORE_DIMS.length 条分项分 + 总分条形 + 权重说明 + 两行免责（自定义权重 / 统一免责） */
 function renderScoreSection(comfort, scores, prefs) {
   const sec = ensureScoreSection();
   if (!sec) return;
@@ -5024,6 +5115,8 @@ function onPrefChange() {
 
 /** 7 天累计雨量的分级文案 */
 function totalNote(total) {
+  /* N1①：null 不许说成"基本无有效降水"（缺数据 ≠ 没下雨） */
+  if (numOrNull(total) === null) return '集合成员数据不可用';
   if (total < RAIN_ACCUM_TIERS.DRY_MM)       return '基本无有效降水';
   if (total < RAIN_ACCUM_TIERS.LIGHT_MM)     return '降水偏弱，零星小雨为主';
   if (total < RAIN_ACCUM_TIERS.MODERATE_MM)  return '有中等强度降雨过程';
@@ -5031,6 +5124,8 @@ function totalNote(total) {
   return '累计雨量很大，需重点防范';
 }
 function totalClass(total) {
+  /* N1①：null 给中性色，不给"没事"的绿色 */
+  if (numOrNull(total) === null) return 'c-muted';
   if (total < RAIN_ACCUM_TIERS.DRY_MM)       return 'c-ok';
   if (total < RAIN_ACCUM_TIERS.MODERATE_MM)  return 'c-accent';
   if (total < RAIN_ACCUM_TIERS.HEAVY_MM)     return 'c-warn';
@@ -5168,8 +5263,12 @@ function renderOverviewChart(ctx) {
     `柱=降水量(mm)　线=降水概率(%)　未来 ${n} 小时` +
     (want > fHours ? `（预报数据仅 ${fHours} 小时）` : '');
 
+  /* ⚠ N1：null 一路送到显示层，不许在这里"接住"成 0。
+     - `round2` 现在对无效值返回 null（见其注释）；
+     - 概率那行原来是 `Math.round(v)`，`Math.round(null) === 0` → 画成"必然不下雨"的 0%。
+     折线图已配 spanGaps（见下方 datasets），柱状图对 null 会自动跳过。 */
   const precipData = avgPrecip ? avgPrecip.slice(fStart, fStart + n).map(v => round2(v)) : labels.map(() => null);
-  const probData   = avgProb   ? avgProb.slice(fStart, fStart + n).map(v => Math.round(v)) : labels.map(() => null);
+  const probData   = avgProb   ? avgProb.slice(fStart, fStart + n).map(v => (numOrNull(v) === null ? null : Math.round(numOrNull(v)))) : labels.map(() => null);
 
   const datasets = [
     {
@@ -5196,7 +5295,10 @@ function renderOverviewChart(ctx) {
       pointHoverRadius: 4,
       tension: 0.35,
       fill: true,
-      spanGaps: true,
+      /* ⑦（2026-09-24 用户报）：这是**真实数据**的缺口（缺数据的小时），
+         必须让缺口可见 —— spanGaps 连过去会被读成"这段时间连续下雨/概率一直这么高"。
+         只有集合成员线（主动抽样造成空隙）才该连过去。 */
+      spanGaps: false,
       yAxisID: 'y1',
       order: 1
     }
@@ -5222,12 +5324,13 @@ function renderOverviewChart(ctx) {
         // 补充：本时是否有雨 + 往后 6 小时累计（看连续性比单点更有用）
         tooltipAfterBody: items => {
           const k = items[0].dataIndex;
-          const v = Number(precipData[k]) || 0;
+          const v = numOrNull(precipData[k]);
           const last6 = precipData.slice(Math.max(0, k - 5), k + 1);
-          const p6    = sum(last6.map(x => Number(x) || 0));
+          /* N1：缺数据不能算进累计，也不能被说成"基本无雨" */
+          const p6 = sumSeg(last6);
           return [
-            v >= HOUR_RAIN_MM ? '本小时有降雨' : '本小时基本无雨',
-            `近 6 小时（含本时）累计：${fmt(p6, 2)} mm`
+            v === null ? '本小时无数据' : (v >= HOUR_RAIN_MM ? '本小时有降雨' : '本小时基本无雨'),
+            `近 6 小时（含本时）累计：${p6 === null ? '—' : fmt(p6, 2)} mm`
           ];
         }
       })
@@ -5254,7 +5357,9 @@ function renderModelChart(ctx) {
     const arr  = modelSeries[m].precipitation;
     return {
       label: meta.name,
-      data: arr ? arr.slice(fStart, fStart + n).map(v => Number(v) || 0) : labels.map(() => null),
+      /* N1：`Number(v) || 0` 会把缺数据画成 0（"没下雨"）；改用 numOrNull，
+         null 交给 spanGaps 跳过 —— 缺数据就是缺数据。 */
+      data: arr ? arr.slice(fStart, fStart + n).map(v => numOrNull(v)) : labels.map(() => null),
       borderColor: meta.color,
       backgroundColor: meta.color + '1f',
       borderWidth: 2,
@@ -5262,7 +5367,10 @@ function renderModelChart(ctx) {
       pointHoverRadius: 4,
       tension: 0.35,
       fill: false,
-      spanGaps: true
+      /* ⑦（2026-09-24 用户报）：这是**真实数据**的缺口（缺数据的小时），
+         必须让缺口可见 —— spanGaps 连过去会被读成"这段时间连续下雨/概率一直这么高"。
+         只有集合成员线（主动抽样造成空隙）才该连过去。 */
+      spanGaps: false,
     };
   });
 
@@ -5285,14 +5393,18 @@ function renderModelChart(ctx) {
         // 补充：此刻三个模型拉开的差距，以及谁最大（一眼看出分歧）
         tooltipAfterBody: items => {
           const i   = fStart + items[0].dataIndex;
-          const val = models.map(m => {
+          /* N1：缺数据的模型不参与极差比较。
+             原来 `Number(arr[i]) || 0` 把"这个模型没给数据"算成 0 mm，
+             于是极差会凭空变大、还会冤枉它是"最小"的那个。 */
+          const vals = models.map(m => {
             const arr = modelSeries[m].precipitation;
-            return arr ? (Number(arr[i]) || 0) : 0;
-          });
-          const mx   = Math.max.apply(null, val);
-          const mn   = Math.min.apply(null, val);
+            return arr ? numOrNull(arr[i]) : null;
+          }).filter(v => v !== null);
+          if (!vals.length) return ['这个小时三个模型都没有有效数据'];
+          const mx   = Math.max.apply(null, vals);
+          const mn   = Math.min.apply(null, vals);
           const gap  = mx - mn;
-          const top  = models[val.indexOf(mx)];
+          const top  = models[vals.indexOf(mx)];
           const topN = MODEL_META[top] ? MODEL_META[top].name : top;
           const lines = [
             `三模型极差：${fmt(gap, 2)} mm　最大 ${topN} ${fmt(mx, 2)} mm`
@@ -5350,7 +5462,9 @@ function renderEnsembleChart(ctx) {
   ens.members.forEach((series, mi) => {
     datasets.push({
       label: '成员' + (mi + 1),
-      data: labels.map((_, k) => (k % step === 0 ? (Number(series[eStart + k]) || 0) : null)),
+      /* N1：`Number(series[...]) || 0` 会把成员缺的那个小时画成 0（"没下雨"）；
+         缺数据就是缺数据，交给 spanGaps 跳过。 */
+      data: labels.map((_, k) => (k % step === 0 ? numOrNull(series[eStart + k]) : null)),
       borderColor: MEMBER_LINE_COLOR,
       borderWidth: 0.8,
       pointRadius: 0,
@@ -5374,7 +5488,10 @@ function renderEnsembleChart(ctx) {
     pointHoverRadius: 5,
     tension: 0.3,
     fill: false,
-    spanGaps: true,
+    /* ⑦（2026-09-24 用户报）：这是**真实数据**的缺口（缺数据的小时），
+       必须让缺口可见 —— spanGaps 连过去会被读成"这段时间连续下雨/概率一直这么高"。
+       只有集合成员线（主动抽样造成空隙）才该连过去。 */
+    spanGaps: false,
     showInLegend: true,
     isMember: false,
     order: 1
@@ -5393,13 +5510,14 @@ function renderEnsembleChart(ctx) {
     xTicks: 8,
     animate: 0,   // 成员太多，关掉动画避免卡顿
     tooltipTitle: items => fullTimeLabel(ens.time[eStart + items[0].dataIndex]),
-    // tooltip 过滤掉 50 条成员线，否则一屏全是"成员xx"
+    // tooltip 过滤掉全部成员线（条数随接口返回变化，不写死），否则一屏全是"成员xx"
     tooltipFilter: (item) => !item.dataset.isMember,
     tooltipLabel: item => `集合中位数：${fmt(item.parsed.y, 2)} mm`,
     tooltipAfterBody: (items) => {
       // 窗口内的 dataIndex 要换算回集合时间轴的原始下标
       const i    = eStart + items[0].dataIndex;
-      const vals = ens.members.map(m => Number(m[i]) || 0);
+      /* N1：缺值的成员不参与"这一小时下雨成员数"的统计（原来当成 0 → 冤枉它没下雨） */
+      const vals = ens.members.map(m => numOrNull(m[i])).filter(v => v !== null);
       // 只看"这一个小时"，与 48h 累计口径无关，所以措辞必须写清是"这一小时"，
       // 免得和「48h 有效降雨概率」（成员 48h 累计 >0.5mm）混成一回事
       const raining = vals.filter(v => v >= HOUR_RAIN_MM).length;
@@ -5529,8 +5647,15 @@ function plusOneHour(str) {
 }
 
 /** 保留两位小数。多模型求平均会带来浮点尾巴（三个 0.1 平均后是 0.10000000000000002），
- *  直接用 > 0.1 这类阈值判断会被这个尾巴骗到，所以比较前先抹平 */
-function round2(x) { return Math.round((Number(x) || 0) * 100) / 100; }
+ *  直接用 > 0.1 这类阈值判断会被这个尾巴骗到，所以比较前先抹平。
+ *  ⚠ **null 要原样返回**（2026-09-24 N1）：原来写 `Number(x) || 0`，
+ *  而 `Number(null) === 0` —— 于是"缺数据"被画成 0，图表上看起来像"没下雨"；
+ *  底座（averageAcrossModels / windowStats）刚改好不把缺失当 0，这里等于又接回 0。
+ *  折线已有 spanGaps、柱状图会自动跳过 null，直接返回 null 即可。 */
+function round2(x) {
+  const n = numOrNull(x);
+  return n === null ? null : Math.round(n * 100) / 100;
+}
 
 /** 某个窗口内的累计值 / 峰值 / 峰值所在下标 */
 function windowStats(series, start, count) {
@@ -5619,9 +5744,13 @@ function renderConclusion(ctx) {
   /* ---------- 主结论句 ----------
      档位判断用的还是原来的 total24 原值（阈值一个没动），
      只是显示出来的数字统一走 fmtAccum（整数毫米）——
-     不足 1 毫米时写"不足 1 毫米"，而不是取整成 "约 0 毫米"。 */
+     不足 1 毫米时写"不足 1 毫米"，而不是取整成 "约 0 毫米"。
+     ⚠ **null 必须单独一个分支**（2026-09-24 N1）：`null < 0.1` 是 `true`，
+     不拦的话"降水数据整段缺失"会被写成"基本没有有效降雨" ——
+     而同一屏的 L0 正显示"模型数据不可用，无法给出建议"，自相矛盾。 */
   let verdict;
-  if (total24 < RAIN24_VERDICT.DRY_MM)       verdict = `未来 24 小时该地点<b>基本没有有效降雨</b>`;
+  if (total24 === null)                          verdict = `未来 24 小时该地点的降水数据<b>不可用</b>，无法给出结论`;
+  else if (total24 < RAIN24_VERDICT.DRY_MM)       verdict = `未来 24 小时该地点<b>基本没有有效降雨</b>`;
   else if (total24 < RAIN24_VERDICT.LIGHT_MM)    verdict = `未来 24 小时该地点<b>降雨很弱，不足 1 毫米</b>`;
   else if (total24 < RAIN24_VERDICT.MODERATE_MM) verdict = `未来 24 小时该地点<b>预计降雨约 ${fmtAccum(total24)} 毫米</b>`;
   else if (total24 < RAIN24_VERDICT.HEAVY_MM)    verdict = `未来 24 小时该地点<b>降雨明显，约 ${fmtAccum(total24)} 毫米</b>`;
@@ -5654,17 +5783,29 @@ function renderConclusion(ctx) {
   /* ---------- 模式一致性（三个模型 24h 雨量：最大值 ÷ 最小值 > DIVERGE.STRONG_RATIO → 提示分歧） ---------- */
   const perModel24 = models.map(m => {
     const arr = modelSeries[m].precipitation;
-    return arr ? round2(sum(arr.slice(fStart, fStart + WIN))) : 0;
+    /* ③（2026-09-24 用户报）：没有降水序列的模型**不是"认为完全不下雨"**，而是"没给数据"。
+       原来写成 0：卡面会显示「GFS 0mm」，还会被算进极差 —— 凭空造出"模式分歧较大"。
+       `sumSeg` 跳过 null、整段无有效值返回 null；展示侧 `fmtAccum(null)` 已经渲染成「—」。 */
+    return arr ? sumSeg(arr.slice(fStart, fStart + WIN)) : null;
   });
-  const mx = maxOf(perModel24), mn = minOf(perModel24);
+  /* 只让**有效**模型参与比较（null 既不进 max、也不进 min） */
+  const valid24 = perModel24.filter(v => v !== null);
+  const mx = valid24.length ? Math.max.apply(null, valid24) : null;
+  const mn = valid24.length ? Math.min.apply(null, valid24) : null;
   // 最小值可能正好是 0（某个模型认为完全不下雨），这时比值趋于无穷，用 Infinity 表示
-  const ratio  = mn > 0 ? mx / mn : (mx > 0 ? Infinity : 1);
+  const ratio  = (mn !== null && mn > 0) ? mx / mn : (mx !== null && mx > 0 ? Infinity : 1);
   const detail = models.map((m, i) =>
     `${modelName(m)} ${fmtAccum(perModel24[i])}`).join(' / ');
 
   const ratioText = Number.isFinite(ratio) ? fmt(ratio) + ' 倍' : '极大';
 
-  if (ratio > DIVERGE.STRONG_RATIO && mx >= DIVERGE.MIN_MM) {
+  if (valid24.length < 2) {
+    /* ③：可用模型不足 2 个 → 如实说"没法比"，绝不凭空报分歧 */
+    agreeBox.innerHTML =
+      '<div class="alert"><span>·</span><span>' +
+      `只有 ${valid24.length} 个模型给出了 24 小时降水数据，无法比较模型一致性。` +
+      '</span></div>';
+  } else if (ratio > DIVERGE.STRONG_RATIO && mx >= DIVERGE.MIN_MM) {
     // 补一个 mx 下限：雨量小到 0.1mm 以下时，几倍差距也没有实际意义，不值得报警
     agreeBox.innerHTML =
       '<div class="alert warn"><span>⚠️</span><span>' +
@@ -5701,9 +5842,9 @@ function renderConclusion(ctx) {
   const advice = [];
 
   // 集合口径的长时效参考：中位数 = 最可能情形，90% 分位 = 偏多情形
-  const total7  = sum(stats.p50.slice(eStart));
-  const p90_all = sum(stats.p90.slice(eStart));
-  const p90_48  = sum(stats.p90.slice(eStart, eStart + 48));
+  const total7  = sumSeg(stats.p50.slice(eStart));
+  const p90_all = sumSeg(stats.p90.slice(eStart));
+  const p90_48  = sumSeg(stats.p90.slice(eStart, eStart + 48));
 
   /* 气温（用来判断下的是雨还是雪）：C2（2026-09-24）起读缓存里的 comfort，
      不再在这里第三次重算温度。
@@ -6035,7 +6176,7 @@ function removeChartSkeleton(card) {
 }
 
 
-/* ---------- KPI 骨架屏（形状跟着 L1 走：固定 3 张，宽屏一行三列） ----------
+/* ---------- KPI 骨架屏（形状跟着 L1 走：固定 CORE_CARD_COUNT 张，宽屏一行三列） ----------
    阶段一这里是"三组 3 / 4 / 3"共 10 张的骨架；阶段二第一屏压到 6 张；
    2026-09-24 分层重组后 L1 只剩 3 张，骨架跟着改成 3 张 ——
    骨架形状必须与数据卡一致，否则数据一到就会出现"骨架 N 张、数据 M 张"的跳变。 */
@@ -6179,8 +6320,11 @@ function renderCharts(ctx) {
   if (fold && !fold.open) { chartsPending = true; return; }
   chartsPending = false;
 
-  // Chart.js 没加载出来（离线、或 CDN 被网络策略拦掉）时，别让整页跟着挂：
-  // KPI 与结论不依赖 Chart.js，照常显示，只在图表位置给一句能看懂的提示。
+  /* Chart.js 是**内联在本文件里**的（2026-09-24 C8），正常打开时不可能"没加载出来"。
+     所以走到这里只剩一种可能：内联那段库代码**没能执行** ——
+     比如文件被编辑器/网盘同步截断损坏、或被安全软件拦下了页面里的脚本。
+     别让整页跟着挂：KPI 与结论不依赖 Chart.js，照常显示，只在图表位置给一句真话。
+     ⚠ 文案不许再说"CDN 访问失败" —— 那会把用户引向错误的排查方向（用户 2026-09-24 N3 指出）。 */
   if (typeof Chart === 'undefined') {
     window.__chartLibMissing = true;
     [overviewCard, modelCard, ensembleCard].forEach(showChartLibError);
@@ -6202,9 +6346,9 @@ function showChartLibError(card) {
   if (!box || box.querySelector('.chart-lib-err')) return;
   const d = document.createElement('div');
   d.className = 'chart-lib-err';
-  d.innerHTML = '<b>图表库未能加载</b>' +
-    'Chart.js 的 CDN 没能访问成功。上面的数据统计与结论不受影响，' +
-    '图表需要联网加载图表库，请检查网络后刷新页面。';
+  d.innerHTML = '<b>图表库代码未能执行</b>' +
+    '可能是文件被编辑器损坏或被安全软件拦截 —— 页面其余数据不受影响，' +
+    '建议用原始文件重新打开。';
   box.appendChild(d);
 }
 function clearChartLibError(card) {
@@ -6296,7 +6440,7 @@ function refreshCacheInfo() {
 }
 
 /**
- * 页脚里的统一免责声明（第 1 屏收口：免责声明 4 处 → 2 处）。
+ * 页脚里的统一免责声明（全站唯一一处；历史上从 4 处收敛到此）。
  * 全站只剩一处：**页脚**（这里）。评分卡那处（.score-disclaimer）已于 2026-09-24 撤掉。
  * 文本仍来自唯一常量 DISCLAIMER_NOTE（不手写第二份）：
  * 节点如果被编辑器重新序列化抹掉，这里补建，保证页脚一定找得到这句话。
