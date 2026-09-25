@@ -5,27 +5,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" data-page-node-id="wlkIDZQclhgI680PNq0luW" />
 <title>降水快报</title>
 
-<!-- ========== 版本：2026-09-25 · 极端天气修正（P0-A ~ P1-F） ==========
-     用户实测两个极端点（东方站 −64℃、某地 26~39.2℃）后，发现五处"页面说了不该说的话"。
-     本轮改动：
-       P0-A 新增总分托底 applyScoreFloor（SCORE_TOTAL_TRIM = 5）——
-            "一个维度爆表 + 其余维度没事"不再被加权平均摊薄成温和措辞；
-            渲染层会如实写出"总分已按最难受的一项托底（该项 N 分）"。
-       P0-B FEELS_LEVELS 两端各加密（冷端 3 档→5 档、热端 3 档→5 档），中间分界不动。
-       P0-C OUTFIT_TIERS 补上热端（HOT_HI_C / SCORCH_C）与冷端封底（POLAR_C / DEEP_C）；
-            「早晚添衣」改成"温差大 **且** 最低温确实偏凉"两个条件。
-       P0-D 提示条 feels-cold / feels-hot 改为**查 FEELS_LEVELS**（档名 + 该档后果），不再写死。
-       P0-E TEMP_SCORE_STOPS 两端拉长 —— 100 分留给真正的极端（旧表 0℃ / 35℃ 就双双封顶）。
-       P1-F 删除「我有伞」偏好（那条分支在所有调用点都跑不到）；wetRiskText 去掉 prefs 形参。
+<!-- ========== 版本：2026-09-25 · 显示层修正（多批；逐条判断见 HANDOFF.md 第 4 / 6 / 7 节） ==========
+     以下都是用户逐条实测报出、已修并配了断言与"退回旧写法"反证的问题：
+       · 结论区「模式一致性」：三个模型都没报雨时不再说"这场雨的把握较高"——
+         `ratio` 的兜底从 `1` 改成 `null`，并新增"有雨可比较"这道**独立门槛**。
+       · 总分托底的**说明闸门**：`applyScoreFloor` 的那句说明只在**档位真的被托上去**时才写
+         （否则「舒服的一天（3 分）」下面会解释一个读者根本看不出的困惑）。
+       · 穿衣 hint 的拼接重复：「厚外套，早晚偏冷」+「早晚添衣」→ 改「厚外套就行」；
+         「注意保暖」+「注意防晒补水」→ 改「午后防晒补水」。
+         （两处都是**穷举扫描**扫出来的，见 scenario-stage3 的"全组合"块。）
+       · 地名搜索：级别标签改成**读 FEATURE_LEVELS 的 `seat` 标记**（旧版判据里另抄了一份
+         code 正则，表后来加了 PPLG 它没跟上）；搜索框小字收窄成「省 / 州名搜不到，请搜省内的城市」
+         （旧文案"只收录城市与村庄"是假话——实测搜「美国」/「France」会返回 `PCLI` 国家）。
+       · `fmtCoord` / `skyText` 改走 `numOrNull`：空白串 `' '` 不再渲染成坐标 `0.00`、
+         缺云量数据不再被说成「晴」。
+       · 评分卡副标题：判据从 `contrib`（分项分 × 有效权重）换成**分项分**——
+         读者在页面上看见的是分项分那条横条；多项 ≥ SCORE_REASON_HEAVY_MIN 时改为**列举**，
+         且多项不在每项前重复短名（开头那串名字已给出对应关系）。
+         顺带删掉已无引用方的 `contrib` 字段与 `scoreDimWeights()`（死字段不留）。
 
-     ⚠ 以下行为变化是**预期**的，不是 bug：
-       · 穿衣 hint 分界整体上移：20℃ 从「薄外套就行」变成「长袖或薄衫」；
-       · 带小字评分的场景若"最难受的一项"超出其余维度 5 分以上，总分会被托底抬高
-         （例：−5℃ 场景 → 63；雨 100 分场景 → 95；东方站 / 死亡谷 → 95；
-           40℃ → 80.6，主值随之进「能不出门就别出门」）；
+     ⚠ P0-A ~ P1-F 那批（极端天气修正）的**行为变化是预期**，不是 bug：
+       · 穿衣 hint 分界整体上移（20℃ → 「长袖或薄衫」）；
+       · "最难受的一项"超出其余维度 5 分以上时总分会被托底抬高
+         （−5℃ → 63；雨 100 分 → 95；40℃ → 80.6，主值随之进「能不出门就别出门」）；
+         **且只在档位被托上去时**才写那句托底说明；
        · −10℃ 的温度不适分从 100 降到 76（"有点冷"与"冻伤"不再同分）。
 
-     测试：1175 项全绿（12 套 + 审计器自检）。改动理由与逐条判断见 HANDOFF.md 第 4 节。 -->
+     测试：全绿。**套件数与断言数不写在这里**（见 HANDOFF.md 第 0 节）——
+     这里每加一条断言都要改一次，而它总会改漏。 -->
+
 
 <!-- ========== 图表库 Chart.js（内联，2026-09-24 C8） ==========
      原先走 CDN（jsdelivr 主源 + unpkg 回退 + document.write 补脚本），但：
@@ -1626,21 +1634,32 @@ const SCORE_VERDICT_LEVELS = [
   { max: Infinity, name: '能不出门就别出门', tip: '有明确风险或极端不适' }
 ];
 
-/* 分项分 ≥ 此值 → 副标题（主要是 X）用 heavy 档措辞。
-   取 60 是与 SCORE_VERDICT_LEVELS 里「挺难受」的下界同一把尺子，不另立门槛。 */
+/* 分项分 ≥ 此值 → 副标题**列举它**，并且用 heavy 档措辞（2026-09-25：两件事合成同一把尺子）。
+   取 60 是与 SCORE_VERDICT_LEVELS 里「挺难受」的下界同一把尺子，不另立门槛。
+   ⚠ **不许新造 70**：70 是条形图 `scoreTierClass` 的"显示成红色"**配色**界限，
+     不是"这一项本身难不难受"的界限。拿 70 当判据，实测那组里的 69 分会因为差 1 分被漏掉 ——
+     而读者正盯着那条（还只是黄色的）条问"它凭什么不提"。 */
 const SCORE_REASON_HEAVY_MIN = 60;
 
-/* -------------------- 【自定义】副标题「主要是 X：<原始数值+单位>，为什么会难受」 --------------------
-   格式由用户指定（例：主要是风：阵风 45 km/h，骑车会明显吃力），
-   要求必须带上**原始数值和单位**，不能只说"风力影响较大"（那等于没翻译）。
-   每一维两档：分项分 < SCORE_REASON_HEAVY_MIN 用 mild，≥ 它用 heavy；
-   风在勾了「我会骑车」时优先用 bike 档 —— 用户验收要求：勾上骑车后副标题要跟着变。
+/* ---------- 【自定义】副标题的"为什么难受"：**优先查该维度自己的档位表** ----------
+   2026-09-25 用户实测报（同一屏两处对同一个风速说相反的话）：
+     L2 明细卡按 `GUST_LEVELS` 说「阵风 15 km/h → 和缓，对出行没有影响」，
+     而评分卡副标题写「主要是风：阵风 15 km/h，伞不太好撑」—— 互斥。
+   根因两层：① 数值报的是 `gustPeak`，强度却按 `windPeak`（合成风力）的档位选，
+   中间隔了一次 `windCombine` —— 报的量和判的量**不是同一个量**；
+   ② 本表每维只有两档，却要覆盖 0~100 分（阵风 35 与阵风 75 拿到同一句"走路撑伞都费劲"）。
+   修法：每一维都去**它自己的那张表**取措辞 —— 同一个量、同一把尺子，与明细卡逐字一致：
+     风     → `GUST_LEVELS.tip`        （判据 gustPeak）
+     雨     → `RAIN_FEEL_LEVELS.feel`  （判据 effRainPeak）
+     能见度 → `VIS_LEVELS.tip`         （判据 visMin）
+   本表只留**两样没有同量表可收**的东西：
+     · 温度：`FEELS_LEVELS` 按**体感**分档，而副标题报的是**气温** —— 不是同一个量，
+       硬收会重演风速那个错，所以温度仍用这里的两档措辞；
+     · 风的"骑车"视角：档位表里没有，是评分卡独有的 → 作为**附加后缀**（不替代 tip）。
    全部是【经验值】口语描述，不是气象学结论。 */
 const SCORE_DIM_REASON = {
-  RAIN: { mild: '出门鞋子会湿',   heavy: '衣服会被淋透'     },
-  WIND: { mild: '伞不太好撑',     heavy: '走路撑伞都费劲', bike: '骑车会明显吃力' },
   TEMP: { mild: '得注意加减衣服', heavy: '长时间在外很难受' },
-  VIS:  { mild: '远处略发灰',     heavy: '路上看不清'       }
+  WIND: { bike: '骑车会明显吃力' }
 };
 
 /* -------------------- 【自定义】淋湿风险档位（按有效雨强） --------------------
@@ -5322,28 +5341,12 @@ function scoreVerdict(n) {
 }
 
 /**
- * 副标题判定用的"有效权重"（即"分项分 × 权重"里的那个权重）。
+ * 副标题的"主要维度"（2026-09-25 起：**判据就是分项分**，页面上不再有第二把尺子）。
  *
- * 与 computeScores 内部同一套规则、同一批常量：基础权重 SCORE_WEIGHTS，
- * 有雨时风 ×WIND_RAIN_BOOST，勾「会骑车」风再 ×PREF_BOOST.WIND，勾「怕冷」温度 ×PREF_BOOST.TEMP。
- * 为什么另写一份、而不让 computeScores 把它算好的权重一起返回：用户明确要求
- * "computeScores 的任何计算不许动"（含签名），所以这里不碰它。
- * 两份真相由 S20 的数值断言（各场景最大项 == 这四个值的最大值）与源码哨兵
- * （computeScores 仍引用 WIND_RAIN_BOOST / PREF_BOOST）共同锁住，改任一处都会红。
- */
-function scoreDimWeights(scores, prefs) {
-  const p = prefs || {};
-  const hasRain = !!(scores && scores.hasRain);
-  return {
-    RAIN: SCORE_WEIGHTS.RAIN,
-    WIND: SCORE_WEIGHTS.WIND * (hasRain ? WIND_RAIN_BOOST : 1) * (p.bike ? PREF_BOOST.WIND : 1),
-    TEMP: SCORE_WEIGHTS.TEMP * (p.cold ? PREF_BOOST.TEMP : 1),
-    VIS:  SCORE_WEIGHTS.VIS
-  };
-}
-
-/**
- * 四个维度里「分项分 × 有效权重」最大的那一项 → 副标题「主要是 X：<原始数值+单位>，为什么会难受」。
+ * ⚠ 同时删掉了 `scoreDimWeights()` 与候选里的 `contrib` 字段 —— 它们唯一的用途是
+ *   "按 分项分 × 有效权重 选第一名"，而那把尺子**读者看不见**（页面上画的是分项分）。
+ *   判据一换，这两个东西就**没有引用方**了：留一个"看起来还在算"的字段，下一个读代码的人
+ *   会以为它有用（与删 `wetRiskText(prefs)` 那个假形参同一条理由）。
  *
  * 原始数值必须取**驱动那一项分数**的量，否则等于没翻译（用户要求带上数值和单位）：
  *   雨     → 有效雨强 effRainPeak（降雨不适分就是按它算的）        单位 mm/h
@@ -5357,9 +5360,8 @@ function scoreDimWeights(scores, prefs) {
 function dominantDim(scores, comfort, prefs) {
   if (!scores) return null;
   const c = comfort || {};
-  const w = scoreDimWeights(scores, prefs);
   /* ⚠ 2026-09-25 自省：我一度以为这行是死变量（只读了函数前半段），删掉后
-     下方 `best.key === 'WIND' && p.bike` 立刻 ReferenceError、整个套件抛异常。
+     下方 `x.key === 'WIND' && p.bike` 立刻 ReferenceError、整个套件抛异常。
      **删变量前必须读完整函数** —— 教训已记进 HANDOFF 第 6 节。 */
   const p = prefs || {};
   const sRain = numOrNull(scores.rain), sWind = numOrNull(scores.wind);
@@ -5368,14 +5370,14 @@ function dominantDim(scores, comfort, prefs) {
 
   if (sRain !== null && numOrNull(c.effRainPeak) !== null) {
     cand.push({
-      key: 'RAIN', label: '雨', score: sRain, contrib: sRain * w.RAIN,
+      key: 'RAIN', label: '雨', score: sRain,
       rawText: '有效雨强 ' + fmt(c.effRainPeak, PRECISION.HOUR_MM) + ' mm/h',
       raw: c.effRainPeak, unit: 'mm/h'
     });
   }
   if (sWind !== null && numOrNull(c.gustPeak) !== null) {
     cand.push({
-      key: 'WIND', label: '风', score: sWind, contrib: sWind * w.WIND,
+      key: 'WIND', label: '风', score: sWind,
       rawText: '阵风 ' + fmtWind(c.gustPeak) + ' km/h',
       raw: c.gustPeak, unit: 'km/h'
     });
@@ -5388,7 +5390,7 @@ function dominantDim(scores, comfort, prefs) {
     const tv = useCold ? c.tempMin : c.tempMax;
     if (numOrNull(tv) !== null) {
       cand.push({
-        key: 'TEMP', label: '温度', score: sTemp, contrib: sTemp * w.TEMP,
+        key: 'TEMP', label: '温度', score: sTemp,
         rawText: (useCold ? '最低气温 ' : '最高气温 ') + fmtTemp(tv) + '℃',
         raw: tv, unit: '℃'
       });
@@ -5396,25 +5398,79 @@ function dominantDim(scores, comfort, prefs) {
   }
   if (sVis !== null && numOrNull(c.visMin) !== null) {
     cand.push({
-      key: 'VIS', label: '能见度', score: sVis, contrib: sVis * w.VIS,
+      key: 'VIS', label: '能见度', score: sVis,
       rawText: fmtVis(c.visMin), raw: c.visMin, unit: 'm'
     });
   }
   if (!cand.length) return null;
 
-  let best = cand[0];
-  for (let i = 1; i < cand.length; i++) if (cand[i].contrib > best.contrib) best = cand[i];
+  /* ⚠ 2026-09-25 用户实测报：**判据从 `contrib`（分项分 × 有效权重）换成「分项分」**。
+     为什么：正上方那几条横条画的就是**分项分**，读者一定会拿副标题去对照 ——
+     而 `contrib` 那把尺子**读者看不见**。实测那组数（雨 69 / 风 70 / 温度 3 / 能见度 100）：
+     contrib = 27.6 / 26.25 / 0.75 / 10.0，雨以 **1.35 分**赢风 → 副标题只说「主要是雨」，
+     而图上能见度是满格红条、风和雨几乎一样长 —— 那句话于是成了页面自说自话。
+     更要紧的是能见度：权重只有 0.10，**拿满分也永远进不了"主要"**。 */
+  const heavy = cand.filter(x => x.score >= SCORE_REASON_HEAVY_MIN)
+                    .sort((a, b) => b.score - a.score);
 
-  const r = SCORE_DIM_REASON[best.key];
-  const reason = (best.key === 'WIND' && p.bike)
-    ? r.bike
-    : (best.score >= SCORE_REASON_HEAVY_MIN ? r.heavy : r.mild);
+  const withReason = x => {
+    /* 每一维都去**它自己的档位表**取措辞 —— 同一个量、同一把尺子，
+       与明细卡（L2）逐字一致，永不再出现"两处对同一个数说相反的话"。 */
+    let reason = '';
+    if (x.key === 'WIND') {
+      const lv = gustLevel(c.gustPeak);
+      reason = lv ? lv.tip : '';
+      /* 勾了「我会骑车」→ **追加**骑车视角（附加后缀，不替代档位表的 tip）——
+         用户验收要求：勾上后副标题要跟着变。 */
+      if (p.bike && SCORE_DIM_REASON.WIND.bike) {
+        reason = reason ? reason + '，' + SCORE_DIM_REASON.WIND.bike : SCORE_DIM_REASON.WIND.bike;
+      }
+    } else if (x.key === 'RAIN') {
+      const lv = rainFeelLevel(c.effRainPeak);
+      reason = lv ? lv.feel : '';
+    } else if (x.key === 'VIS') {
+      const lv = visLevel(c.visMin);
+      reason = lv ? lv.tip : '';
+    } else {                     /* TEMP：唯一没有同量表可收的维度（体感 ≠ 气温）*/
+      const r = SCORE_DIM_REASON.TEMP;
+      reason = x.score >= SCORE_REASON_HEAVY_MIN ? r.heavy : r.mild;
+    }
+    return Object.assign({}, x, { reason: reason });
+  };
+
+  /* · ≥2 项都 ≥ 60 → **列举**（按分项分从高到低，与读者在图上读到的顺序一致）
+     · 1 项         → 单项，heavy 措辞
+     · 0 项         → 退回分项分最高的那一项，用 mild（"都不难受"不等于"不说话"） */
+  const items = (heavy.length >= 1)
+    ? (heavy.length >= 2 ? heavy.map(withReason) : [withReason(heavy[0])])
+    : [withReason(cand.slice().sort((a, b) => b.score - a.score)[0])];
 
   return {
-    key: best.key, label: best.label, score: best.score, contrib: best.contrib,
-    raw: best.raw, unit: best.unit, rawText: best.rawText, reason: reason,
-    headline: '主要是' + best.label + '：' + best.rawText + '，' + reason
+    items: items,
+    multiple: items.length >= 2,
+    /* 便捷字段（指向第一名）—— 调用方只关心"最主要那项"时不用写 items[0] */
+    key: items[0].key, label: items[0].label, score: items[0].score,
+    raw: items[0].raw, unit: items[0].unit, rawText: items[0].rawText, reason: items[0].reason
   };
+}
+
+/** 副标题文本（2026-09-25 用户要求）—— 单项与多项两种句式，纯函数便于测：
+     · 单项 → 「主要是 X：<原始数值+单位>（<为什么难受>）」
+     · 多项 → 「X、Y、Z 都不轻：<数值>（<原因>）｜<数值>（<原因>）｜<数值>（<原因>）」
+   ⚠ 两种句式都用**括号**装原因（2026-09-25 用户定，替代原来的「，<原因>」）：
+     档位表里的话本身带逗号（例「倾盆，路面出现水流，挡不住」），用逗号拼会变成
+     「…6.7 mm/h，倾盆，路面出现水流，挡不住」—— 逗号嵌套、读起来会断。
+   ⚠ 多项**不在每一项前面重复短名**（2026-09-25 用户要求）：开头那串名字已经给出了对应关系，
+     后面的项按同一顺序排即可（那正是"按分项分从高到低"的用处）。
+     而且 rawText 与括号里的原因本来就各自带上下文（「300 m（路上看不清）」光看就知道是能见度），
+     再挂一个"能见度"是纯重复。
+   ⚠ 原因可能为空串（档位表查不到时由调用方给空串）：那时只写数值，不留一个空括号。 */
+function scoreWhyText(dom) {
+  if (!dom || !dom.items || !dom.items.length) return '—';
+  const items = dom.items;
+  const one = x => x.reason ? (x.rawText + '（' + x.reason + '）') : x.rawText;
+  if (items.length === 1) return '主要是' + items[0].label + '：' + one(items[0]);
+  return items.map(x => x.label).join('、') + ' 都不轻：' + items.map(one).join('｜');
 }
 
 /** 一条分项分（名字 + 条形图 + 数值）；缺数据 → 「—」且条形为 0；颜色按分数分档，不按维度固定 */
@@ -5474,7 +5530,7 @@ function renderScoreSection(comfort, scores, prefs) {
     '<div class="score-verdict ' + (verdict ? totalCls : '') + '">' +
       (verdict ? verdict.name : '数据不足') +
     '</div>' +
-    '<div class="score-why">' + (dom ? dom.headline : '—') + '</div>';
+    '<div class="score-why">' + scoreWhyText(dom) + '</div>';
 
   /* 第 3 行小字：分数降级成内部刻度（模型是自造的，透明性要保住），总分条形图保留 */
   const totalHtml =
