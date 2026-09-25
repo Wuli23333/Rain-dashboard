@@ -520,7 +520,9 @@
     flex: 1 1 auto; height: 10px; border-radius: 999px;
     background: rgba(148, 163, 184, .12); overflow: hidden;
   }
-  .score-fill { display: block; height: 100%; border-radius: 999px; transition: width .35s ease; }
+  /* ②（2026-09-25 用户实测报）：0 分的条宽度是 0%，整行看上去像"这项没数据"，
+     而覆盖率明明写着 100%。给一个最小宽度，让"0 分"和"缺数据"在视觉上分得开。 */
+  .score-fill { display: block; height: 100%; border-radius: 999px; transition: width .35s ease; min-width: 3px; }
   /* 评分条一律按分数分档上色（红=难受 / 黄=一般 / 绿=舒适），与建议卡、提示条的红黄绿同源；
      不再按维度固定配色（最终总验收第 12 条：能见度 100 分不再显示成绿色）。 */
   .score-fill.c-ok     { background: var(--ok); }
@@ -901,7 +903,7 @@
     个人项目，非官方预报<br  data-page-node-id="ZkX2h2u7VxC6xT1F4qY9sL"/>
     <span id="footDisclaimer"></span><br  data-page-node-id="Qp4Wm2rT8nJb3Kd1Yv6HsX"/>
     数据来源：<a href="https://open-meteo.com/" target="_blank" rel="noopener" data-page-node-id="tikG91PB7Ni9iqIoqS6reF">Open-Meteo</a>
-    预报 / 集合 / 地理编码 API ｜ 降水量单位：毫米（mm）｜ 时间基准：北京时间（Asia/Shanghai）<br  data-page-node-id="UiSECF5SmVUd77la7VW0cs"/>
+    预报 / 集合 / 地理编码 API ｜ 降水量单位：毫米（mm）｜ <span id="tzBasis">时间基准：北京时间（Asia/Shanghai）</span><br  data-page-node-id="UiSECF5SmVUd77la7VW0cs"/>
     <span id="updateTime" data-page-node-id="1KTX7EnLWMbJI9lv71735o"></span>
   </footer>
 </div>
@@ -927,7 +929,15 @@ const API_GEOCODE  = 'https://geocoding-api.open-meteo.com/v1/search';
 
 const DEFAULT_LAT = 36.0984;   // 默认纬度（甘肃兰州）
 const DEFAULT_LON = 103.7743;  // 默认经度
-const STORAGE_KEY = 'rainPanel.coords';  // localStorage 中保存坐标的键名
+/* ⚠ **必须带版本号，而且这次是专门从 `.coords` 换成 `.coords.v2` —— 换键即失效。**
+   为什么非换不可：T1 的读取端校验（`pickedPlaceFor` 比对坐标）**挡不住自洽的脏数据**。
+   storage 里若存着一组**互相匹配**的错组合（例：坐标是尼莫点、name 却是「达坂城，新疆」），
+   启动时 `applyCoords(saved.lat, saved.lon, saved.name)` 会把 `__pickedCoords` 也设成同一组坐标
+   → 校验一比就"通过" → 显示错地名 → 查询成功后又原样写回 → **每次开页面自己续一次命**。
+   校验能查"名不对址"，查不出"自洽的谎"；只有换键能一次清干净。
+   ⚠ 另外三个键（`prefs.v1` / `ui.v1` / `cache.v1`）一直都带版本号，只有它没带 ——
+   版本号本来就在防这个。 */
+const STORAGE_KEY = 'rainPanel.coords.v2';  // localStorage 中保存坐标的键名
 
 /* 定位参数（来源：【经验值】—— 浏览器没有"该等多久"的权威值，这两个数只影响等待时长）
    自动定位（首次打开）与手动定位（点「用我当前位置」）共用这张表，
@@ -944,7 +954,31 @@ const GEO = {
   CAND_COUNT:        5
 };
 
-const TZ = 'Asia/Shanghai';    // 接口固定使用北京时间，前端展示也按它对齐
+/* -------------------- 【自定义】特殊点地标表（T3 2026-09-25 用户要求）--------------------
+   **特殊点要有名字**：这些地方按坐标算就能认出来，不需要接口返回 ——
+   所以它们是"算出来的名字"，与"搜索来的地名"是两回事
+   （见 `placeLabel` 的优先级、`saveCoords` 的注释）。
+   ⚠ 容差故意比显示精度（4 位小数）宽得多：0.05° ≈ 5km，
+     同一个小地方用不同来源的坐标都能认出来（尼莫点查出来的可能差 0.01°）。
+   ⚠ 8 条全在这里，顺序即匹配顺序（`landmarkAt` 取第一个命中的）。 */
+const LANDMARK_TOL = 0.05;
+const LANDMARKS = [
+  { name: '尼莫点（海洋难抵极）', lat: -48.8767, lon: -123.3933 },
+  { name: '南极点',               lat: -90.0000, lon:    0.0000 },
+  { name: '本初子午线与赤道交点', lat:   0.0000, lon:    0.0000 },
+  { name: '日期变更线 · 赤道',    lat:   0.0000, lon:  180.0000 },
+  { name: '地球雨极 · 毛辛拉姆',  lat:  25.2800, lon:   91.7300 },
+  { name: '莱恩群岛（UTC+14）',   lat:   1.8700, lon: -157.4300 },
+  { name: '撒哈拉 · 中部',        lat:  23.0000, lon:   12.0000 },
+  { name: '斯瓦尔巴',             lat:  78.2000, lon:   15.6000 }
+];
+
+/* -------------------- 【自定义】时区口径（③ 2026-09-25）--------------------
+   两个接口都发 `timezone=auto`，响应里带回**地点自己的**时区；
+   下面这两个常量只在响应没带 timezone 时兜底（见 `buildContext`）。 */
+const TZ = 'Asia/Shanghai';    // ③（2026-09-25）起这只是**兜底**：两个接口都发 timezone=auto，
+                               //     真正用来对齐时间轴的是响应里的 timezone（见 buildContext）
+const BEIJING_UTC_OFFSET_SEC = 8 * 3600;   // 北京时间固定 +8h：页脚算"比北京时间早/晚几小时"用
 
 /* 请求时指定的模型列表（同时也是解析返回结果时的取值来源） */
 const MODELS = ['ecmwf_ifs025', 'gfs_seamless', 'icon_seamless'];
@@ -1814,6 +1848,7 @@ function computeScores(comfort, prefs) {
 
 /* ==========================================================================
    ★★★【缓存模块】START ★★★
+   来源：【自定义】—— "缓存 10 分钟 / 最多留 10 条"是**本页面的策略**，接口没有这种要求。
    作用：同一 URL 在 10 分钟内不重复请求，避免开发时反复刷新白白消耗 API 额度。
    缓存存在 localStorage（键 rainPanel.cache.v1），刷新页面依然有效。
    每条记录形如 { t: 写入时刻, d: 接口原始数据 }；
@@ -2085,7 +2120,10 @@ function weekdayCN(Y, M, D) {
 
 /** 数字保留 n 位小数并去掉小数部分末尾多余的 0 */
 function fmt(num, n = 1) {
-  if (num === null || num === undefined || Number.isNaN(Number(num))) return '—';
+  /* T6 同款（2026-09-25）：必须把**空串**也挡掉 —— `Number('')` 是 0，`isNaN(0)` 为假，
+     于是 `fmt('')` 会显示 "0" 而不是「—」，一个"看起来合理但错误"的数字。 */
+  if (num === null || num === undefined || (typeof num === 'string' && num.trim() === '') ||
+      Number.isNaN(Number(num))) return '—';
   // 只削"小数点之后"的尾随 0：原来的 /\.?0+$/ 会把 "10" 削成 "1"、把 "0" 削成空串，
   // 在 n = 0（整数百分比）时就会露出问题。
   return Number(num).toFixed(n).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
@@ -2105,9 +2143,10 @@ function sum(arr) {
 /** 数组最大值 / 最小值 */
 /** 过滤出真正可参与数值比较的元素（null / undefined / NaN 一律丢弃） */
 function validNums(arr) {
-  return (arr || [])
-    .filter(x => x !== null && x !== undefined && !Number.isNaN(Number(x)))
-    .map(Number);
+  /* T6 同款（2026-09-25）：改用 `numOrNull` —— 它把 null / undefined / **空串** / NaN / Infinity
+     一律变成 null，恰好就是"可参与数值比较"的判据。原来手写的那串条件漏了空串，
+     而 `Number('') === 0`，空串会以 0 的身份混进统计。 */
+  return (arr || []).map(numOrNull).filter(v => v !== null);
 }
 
 /**
@@ -2140,11 +2179,12 @@ function quantile(sorted, q) {
   return sorted[base];
 }
 
-/** 求"当前小时"的时间键，如 "2026-09-23T15"（接口没返回 current，用浏览器时钟换算） */
-function currentHourKey() {
+/** 求"当前小时"的时间键，如 "2026-09-23T15"（接口没返回 current，用浏览器时钟换算）。
+ *  ③（2026-09-25）：`tz` 由调用方透传（来自接口响应的 `timezone`），缺省才退回 TZ 常量。 */
+function currentHourKey(tz) {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+      timeZone: tz || TZ, year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', hour12: false
     }).formatToParts(new Date());
     const get = t => { const p = parts.find(x => x.type === t); return p ? p.value : ''; };
@@ -2159,9 +2199,10 @@ function currentHourKey() {
   }
 }
 
-/** 在时间轴里找到"从当前小时开始"的起点下标；找不到就从 0 开始（前 13 位是整点，可精确比对） */
-function findStartIndex(timeArr) {
-  const key = currentHourKey();
+/** 在时间轴里找到"从当前小时开始"的起点下标；找不到就从 0 开始（前 13 位是整点，可精确比对）
+ *  ③（2026-09-25）：`tz` 透传给 currentHourKey —— 时区不跟地点走的话，跨时区会整条错位。 */
+function findStartIndex(timeArr, tz) {
+  const key = currentHourKey(tz);
   const idx = (timeArr || []).findIndex(t => String(t).slice(0, 13) === key);
   return idx < 0 ? 0 : idx;
 }
@@ -2214,7 +2255,7 @@ function urlForecast(lat, lon) {
     hourly:        'precipitation_probability,precipitation,temperature_2m,cloud_cover,wind_speed_10m,'
                  + 'weather_code,apparent_temperature,wind_gusts_10m,visibility,rain,showers',
     models:        MODELS.join(','),
-    timezone:      TZ,
+    timezone:      'auto',   // ③（2026-09-25）：跟地点走，不再写死北京时间
     forecast_days: 3
   });
   return API_FORECAST + '?' + p.toString();
@@ -2227,7 +2268,7 @@ function urlEnsemble(lat, lon) {
     longitude: lon,
     hourly:    ENSEMBLE_FIELD,
     models:    'ecmwf_ifs025',
-    timezone:  TZ
+    timezone:  'auto'   // ③（2026-09-25）：跟地点走
   });
   return API_ENSEMBLE + '?' + p.toString();
 }
@@ -2410,7 +2451,8 @@ function ensembleStats(ens) {
    六、输入校验 —— 坐标超范围时给出提示并阻止查询
    ======================================================================= */
 
-/** 校验规则：与输入框上的 label 文案保持一致 */
+/** 校验规则：与输入框上的 label 文案保持一致。
+ *  来源：【国际标准】—— 纬度 ±90、经度 ±180 是 WGS84 经纬度的定义，不是自定阈值。 */
 const COORD_RULES = [
   { id: 'latInput', name: '纬度', min: -90,  max: 90  },
   { id: 'lonInput', name: '经度', min: -180, max: 180 }
@@ -2677,7 +2719,9 @@ async function runQuery(opts) {
     if (!fc.ok) throw withPartial(fc.error, en.ok ? en.label : null);
 
     // 4) 坐标写入 localStorage，下次打开自动填入并自动查询
-    saveCoords(lat, lon, window.__pickedPlace || '');
+    /* ①（2026-09-25）：存进 localStorage 的地名也必须过"坐标是否还匹配"这一关，
+       否则刷新一次页面就把旧地名一起复活了。 */
+    saveCoords(lat, lon, pickedPlaceFor(lat, lon));
 
     // 5) 整理成统一上下文，再交给各渲染函数
     //    集合没取到 → 传 null，各渲染函数按"数据不可用"降级（不假装成 0，也不清空页面）
@@ -2688,6 +2732,12 @@ async function runQuery(opts) {
     const ctx = buildContext(fc.data, en.ok ? en.data : null);
     primeModelCache(ctx);        // 一次算齐派生量，供所有渲染函数只读（C1）
     lastCtx = ctx;               // 记下来：切换时间范围时直接用它重绘，不再请求接口、不再消耗配额
+
+    /* ③（2026-09-25）：页脚「时间基准」跟着地点时区走。
+       ⚠ **必须放在 ctx 构造之后** —— 第一版写在前面，`ctx` 还在 TDZ 里，
+         抛 ReferenceError 被 runQuery 的 catch 吃成"整体失败"，一次弄红 19 条断言。
+       ⚠ 「数据时间」不动 —— 那是"数据什么时候抓回来的"，必须用本机时间，与地点时区无关。 */
+    updateTimeBasis(ctx.tz, ctx.utcOffsetSec);
 
     renderKpis(ctx);
     renderCharts(ctx);           // 图 1 / 图 2 / 图 3 的统一入口（切范围时复用）
@@ -2732,7 +2782,9 @@ async function runQuery(opts) {
 
     // 数据时间取两个接口里"最旧"的取回时刻：命中缓存时写「9 分钟前 · 来自本地缓存」，
     // 而不是掩盖成"刚刚"。语义写在 title 里，免得被误读成预报起报时间。
-    updateTime.textContent = describeDataTime(settled);
+    /* ⑤（2026-09-25 用户报）：把**地点时区**传进去 —— 它决定「数据时间」要不要加
+       「（本机）」限定（见 dataTimeLabel）。时刻本身仍是本机的，一个字节都没变。 */
+    updateTime.textContent = describeDataTime(settled, ctx.tz);
     updateTime.title = '这份数据从接口取回的时刻（不是预报的起报时间）；' +
       '命中本地缓存时会显示当初缓存写入的时间。';
     refreshCacheInfo();
@@ -2820,7 +2872,20 @@ function humanAge(ms) {
  * 只要有一个接口的数据偏旧，整页就不该自称是刚刚拿到的。
  * 同时点名有几个接口确实取自缓存，免得"复用旧数据"被悄悄藏起来。
  */
-function describeDataTime(settled) {
+/** 页脚「数据时间」的标签前缀（⑤ 2026-09-25 用户报）。
+ *  ⚠ 页脚并排放着**两个钟**：「时间基准」说的是**地点**时区（预报时刻按哪口钟读），
+ *  而「数据时间」用的是**本机**时钟（"这份数据什么时候抓回来的"）—— 两者不同源。
+ *  并排放着时，读的人会默认它们同源，所以**两个时区确实不同**时给它加「（本机）」；
+ *  相同时不加 —— 那时加了是噪音。
+ *  ⚠ 独立成纯函数是为了可测：否则这条断言的结果会取决于**跑测试那台机器**的时区。 */
+function dataTimeLabel(placeTz) {
+  let localTz = '';
+  try { localTz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { /* 极老环境没有 */ }
+  const p = placeTz || TZ;
+  return (localTz && p && localTz !== p) ? '数据时间（本机）：' : '数据时间：';
+}
+
+function describeDataTime(settled, placeTz) {
   const oks = (settled || []).filter(s => s.ok && s.dataAt);
   if (!oks.length) return '';                 // 拿不到可靠时刻宁可不写，也不编一个"现在"
 
@@ -2828,10 +2893,29 @@ function describeDataTime(settled) {
   const cachedCount = oks.filter(s => s.fromCache).length;
   const clock       = new Date(oldest).toLocaleString('zh-CN', { hour12: false });
 
-  return '数据时间：' + clock +
+  return dataTimeLabel(placeTz) + clock +
     '（' + humanAge(Date.now() - oldest) +
     (cachedCount ? `，其中 ${cachedCount}/${oks.length} 个接口来自本地缓存` : '') +
     '）';
+}
+
+/** 页脚「时间基准」：跟着**查询地点**的时区走（③ 2026-09-25）。
+ *  · 缺时区信息 / 就是北京时间 → 「北京时间（Asia/Shanghai）」（即改动前的样子）；
+ *  · 其它时区 → 「<IANA 时区>（比北京时间早 N 小时 / 晚 N 小时）」，正好相等写「与北京时间相同」。
+ *  ⚠ 「数据时间」**不归这里管** —— 那是"这份数据什么时候抓回来的"，必须用本机时间，
+ *     否则会跟着地点时区漂走，等于把"抓取时刻"说成"当地时间"，那是撒谎。 */
+function updateTimeBasis(tz, utcOffsetSec) {
+  const el = document.getElementById('tzBasis');
+  if (!el) return;
+  const name = (typeof tz === 'string' && tz) ? tz : TZ;
+  let diffTxt = '';
+  if (name !== TZ && Number.isFinite(utcOffsetSec)) {
+    const hours = Math.round(((utcOffsetSec - BEIJING_UTC_OFFSET_SEC) / 3600) * 10) / 10;
+    if (Math.abs(hours) < 0.05) diffTxt = '与北京时间相同';
+    else diffTxt = '比北京时间' + (hours > 0 ? '早 ' : '晚 ') + Math.abs(hours) + ' 小时';
+  }
+  const head = (name === TZ) ? '北京时间（Asia/Shanghai）' : name;
+  el.textContent = '时间基准：' + head + (diffTxt ? '（' + diffTxt + '）' : '');
 }
 
 
@@ -2840,16 +2924,24 @@ function describeDataTime(settled) {
    ======================================================================= */
 
 function buildContext(forecast, ensemble) {
+  /* ③（2026-09-25 用户实测报）：时区改成**跟地点走**（两个 URL 都发 `timezone=auto`），
+     响应里带回地点自己的时区与 UTC 偏移 —— "当前小时"必须按它对齐，
+     否则跨时区查询会把整条时间轴错位几小时（标题、切片、所有数字一起偏）。
+     ⚠ 页脚的「数据时间」**不受影响**：那是"这份数据什么时候抓回来的"，必须用本机时间。
+     降级：响应没带 timezone 时退回 TZ 常量（即改动前的行为）。 */
+  const tz = (forecast && typeof forecast.timezone === 'string' && forecast.timezone) || TZ;
+  const utcOffsetSec = (forecast && Number.isFinite(forecast.utc_offset_seconds))
+    ? forecast.utc_offset_seconds : null;
   const fHourly = (forecast && forecast.hourly) || {};
   // 集合预报是可选数据源：接口挂掉时这里收到 null，
   // 统一当成"一个字段都没有"（而不是抛异常），后面各渲染函数靠空数组自行降级。
   const eHourly = (ensemble && ensemble.hourly) || {};
 
   const fTime  = fHourly.time || [];
-  const fStart = findStartIndex(fTime);       // 预报时间轴上的"当前小时"
+  const fStart = findStartIndex(fTime, tz);   // 预报时间轴上的"当前小时"（按地点时区）
 
   const ens    = parseEnsemble(eHourly);
-  const eStart = findStartIndex(ens.time);    // 集合时间轴上的"当前小时"
+  const eStart = findStartIndex(ens.time, tz); // 集合时间轴上的"当前小时"（按地点时区）
   const stats  = ensembleStats(ens);
 
   const models = detectModels(fHourly);       // 动态识别实际返回的模型
@@ -2883,13 +2975,16 @@ function buildContext(forecast, ensemble) {
   // 所以这里算出真实可用的小时数，所有文案和切片都以它为准，避免标题与实际不符。
   const fHours = Math.max(0, Math.min(72, fTime.length - fStart));
 
-  return { fTime, fStart, fHours, models, modelSeries, ens, eStart, stats };
+  /* tz / utcOffsetSec（③）：页脚「时间基准」与"比北京时间早/晚 N 小时"由它们推出来。 */
+  return { fTime, fStart, fHours, models, modelSeries, ens, eStart, stats, tz, utcOffsetSec };
 }
 
 
 /* =======================================================================
    九之二、不确定性指标（四张卡 + 顶部综合建议的数据来源）
    -----------------------------------------------------------------------
+   来源：本节三个阈值都是【自定义】—— 48 小时窗口、0.5mm「有雨」、0.1mm/h「这一小时在下雨」，
+   都是为本页面表达口径定的经验边界，没有任何标准背书。
    统一口径：未来 48 小时 + 同一个"有雨"阈值 UNC_RAIN_MM。
      卡片 1  降雨是否一致：各模型 48h 总雨量 > 0.5mm 记为"有雨"，数 N/3
      卡片 2  雨量分歧程度：只在"有雨"的模型之间算 (最大 − 最小) ÷ 中位数
@@ -3823,17 +3918,10 @@ function synthesizedFeelLine(comfort, wetRisk) {
 }
 
 /**
- * 按标点把过长的句子截成"完整子句"（2026-09-24 用户建议的写法）。
+ * 按标点截到最后一个完整子句（2026-09-24 用户建议的写法）。
  *
- * 硬切字符串会造出病句（「…路面出现水流，伞近乎无」），与"页面不撒谎"同级；
- * 这里只在**最后一个逗号/句号处**断开，保证结果仍是一个读得通的完整子句。
- * 找不到可断的标点（整句就是一个长分句）时返回原串，交给调用方走下一级回退 ——
- * 绝不为了凑长度把句子切一半。
- *
- * 注意只认「，」「。」；顿号「、」与间隔号「·」是并列成分，在那里断同样是断句。
- */
-/**
- * 按标点截到最后一个完整子句。
+ * 为什么不用 `slice(0, max)` 硬切：那会造出病句（「…路面出现水流，伞近乎无」），
+ * 与"页面不撒谎"同级。这里只在**最后一个逗号/句号处**断开，保证结果仍读得通。
  *
  * 契约（2026-09-24 N5 收紧）：**非空返回值一定 ≤ max**。
  *   · 原串不超限 → 原样返回；
@@ -4262,9 +4350,16 @@ function coreCards(ctx, comfort) {
         const dHi = comfort.tempMax - comfort.feelsMax;
         const a = Math.round(Math.abs(dLo)), b = Math.round(Math.abs(dHi));
         if (a >= 1 || b >= 1) {
-          const word = (dLo > 0 || dHi > 0) ? '低' : '高';
           const diff = (a === b) ? `${b}℃` : `${Math.min(a, b)}~${Math.max(a, b)}℃`;
-          feelsFoot.push(fTxt + `　·　比气温${word} ${diff}`);
+          /* T4a（2026-09-25 用户报）：**两端同号才敢说方向**。
+             原来写 `(dLo > 0 || dHi > 0) ? '低' : '高'` —— 只要有一端"体感更低"就写"低"；
+             可两端反号时（体感下限更低、上限却更高）方向本身就是矛盾的，
+             再配上 `min~max` 的区间会直接说错：气温 10~20、体感 8~22 → "比气温低 2~2℃"，
+             而事实上**最高那一端体感反而高 2℃**。反号时改成不带方向的"最多差 X℃"。 */
+          const sameDir = (dLo > 0 && dHi > 0) || (dLo < 0 && dHi < 0);
+          feelsFoot.push(sameDir
+            ? fTxt + `　·　比气温${dLo > 0 ? '低' : '高'} ${diff}`
+            : fTxt + `　·　与气温最多差 ${Math.max(a, b)}℃`);
         } else {
           feelsFoot.push(fTxt);
         }
@@ -4822,13 +4917,36 @@ function ensureInputFold() {
    等于把用户自己的位置说成"默认"，与"页面不撒谎"冲突。 */
 let coordSource = 'default';
 
+/** 坐标 → 地标名（T3 2026-09-25）。落在 LANDMARK_TOL 内算同一个地方，否则返回空串。
+ *  ⚠ 这是**算出来的**名字，不来自接口 —— 所以只用于显示，绝不写进 localStorage。 */
+function landmarkAt(lat, lon) {
+  /* ⚠ 必须用 `numOrNull`，不能直接 `Number()`：`Number('')` 和 `Number(null)` **都是 0**，
+     而 (0, 0) 正好在 LANDMARKS 里 —— 于是"坐标是空的"会被认成「本初子午线与赤道交点」。
+     这就是"空值变 0"换了件衣服（`Number.isFinite(0)` 是 true，原来那道守卫拦不住）。
+     项目里本来就有 `numOrNull` 专治这个，它的注释写的就是这段话。 */
+  const la = numOrNull(lat), lo = numOrNull(lon);
+  if (la === null || lo === null) return '';
+  for (const m of LANDMARKS) {
+    if (Math.abs(m.lat - la) <= LANDMARK_TOL && Math.abs(m.lon - lo) <= LANDMARK_TOL) return m.name;
+  }
+  return '';
+}
+
 /** 地点身份标签（**原始文本，未转义**）：有地名用「地名」；定位得来的写「当前位置 · 39.90, 116.41」；
  *  其余写「默认地点 · 36.10, 103.77」。
  *  summary 右侧 #inputPlace 与状态栏共用，保证两处文案一致（第 1 屏收口·第 2 处）。
  *  进 innerHTML 前必须 escapeHtml（地名是 geocoding 的第三方原文）；进 textContent 则无需。 */
 function placeLabel(lat, lon) {
-  const place = (typeof window.__pickedPlace === 'string' ? window.__pickedPlace : '').trim();
+  /* 优先级（**顺序就是这份代码的顺序**，改顺序等于改产品行为）：
+       ① 搜索来的地名（且坐标仍然匹配 —— T1 的读取端校验）
+       ② 地标表命中的名字（T3，算出来的）
+       ③ 「当前位置 · 纬度, 经度」/「默认地点 · 纬度, 经度」
+     ⚠ ② 是算出来的：`saveCoords` 只认 ①（`pickedPlaceFor`），绝不把地标名存进 localStorage ——
+        存下来它就变成"存下来的名字"，T1 那个 bug 会原样重演。 */
+  const place = pickedPlaceFor(lat, lon);
   if (place) return place;
+  const mark = landmarkAt(lat, lon);
+  if (mark) return mark;
   const head = coordSource === 'geo' ? '当前位置 · ' : '默认地点 · ';
   return head + fmtCoord(lat) + ', ' + fmtCoord(lon);
 }
@@ -5038,7 +5156,10 @@ function scoreRowHtml(name, score) {
   return '<div class="score-row">' +
     '<span class="score-name">' + name + '</span>' +
     '<span class="score-bar"><span class="score-fill ' + scoreTierClass(n) + '" style="width:' + w + '%"></span></span>' +
-    '<span class="score-val">' + val + '</span>' +
+    /* ②（2026-09-25 用户实测报）：数字也要上色，而且**沿用同一把尺子** scoreTierClass ——
+       原来只有条上色、数字是默认色，于是 0 分（`c-ok`）和"—"（缺数据、class 为空）
+       在数字上完全看不出区别。现在 0 分是绿字、缺数据是默认色。 */
+    '<span class="score-val ' + scoreTierClass(n) + '">' + val + '</span>' +
   '</div>';
 }
 
@@ -5672,6 +5793,7 @@ function rangeText(a, b) {
 }
 
 /* ============ L1 卡① 的人话时段（2026-09-24 用户指定规格） ============
+   来源：【自定义】—— 时段边界是用户拍板的表达口径，不是气象标准。
    规格：**日期词 + 时段词 + 具体钟点**，三者齐全，不许只写"凌晨"这种模糊说法。
      日期词：今天 / 明天 / 后天（相对"现在"）
      时段词：凌晨(0-5) 早上(5-8) 上午(8-11) 中午(11-13) 下午(13-17) 傍晚(17-19) 夜里(19-24)
@@ -5690,7 +5812,10 @@ const SPOKEN_PARTS = [
 
 /** 小时(0~23) → 时段词 */
 function partOfDay(h) {
-  const n = Number(h);
+  /* T6 同款（2026-09-25）：拿不到小时时**不要假装是 0 点**（0 点会返回「凌晨」，
+     凭空断言一个没人给过的时间）。调用方传的都是真数字，这里只做兜底。 */
+  const n = numOrNull(h);
+  if (n === null) return '夜里';
   for (const p of SPOKEN_PARTS) if (n < p.max) return p.name;
   return '夜里';
 }
@@ -5818,6 +5943,17 @@ function renderConclusion(ctx) {
   /* 24 小时窗口：接口按 forecast_days=3 返回，从"当前小时"起算若不足 24 小时则按实际可用长度 */
   const WIN = Math.max(0, Math.min(24, fHours));
 
+  /* 各模型的 24 小时累计雨量（null = 这个模型**没给**降水序列，不是"认为不下雨"）。
+     T4b（2026-09-25 用户报）：这段**先算出来** —— 下面「24 小时内 N 个模型都没预报出成片降雨」
+     要用的 N 是**有数据的模型数**（valid24.length），而不是探测到的模型数
+     （models.length 可能含没有降水序列的模型，那句话会凭空夸大"所有模型都没预报出雨"）。
+     原来它算在函数后半段（模式一致性那节），那句话当时只能错用 models.length。 */
+  const perModel24 = models.map(m => {
+    const arr = modelSeries[m].precipitation;
+    return arr ? sumSeg(arr.slice(fStart, fStart + WIN)) : null;
+  });
+  const valid24 = perModel24.filter(v => v !== null);
+
   /* 唯一决策（最终总验收·第6条）：带伞横幅 / 四项指标 / 结论句，全部从 computeDecision
      这一份取数，与第1层建议卡、淋湿风险同源。不再在这里另算"建议带伞"的阈值。
      C1：这里原来把 computeUncertainty / computeComfort / loadPrefs 又各算了一遍
@@ -5850,7 +5986,7 @@ function renderConclusion(ctx) {
     const later = rp.laterFirst;
     periodSub = later
       ? `更晚的 ${rangeText(fTime[later.i], plusOneHour(fTime[later.j]))} 可能有零星小雨`
-      : `24 小时内 ${models.length} 个模型都没预报出成片降雨`;
+      : `24 小时内 ${valid24.length} 个模型都没预报出成片降雨`;
   }
 
   /* ---------- 带伞建议（动作与把握都来自 computeDecision，与第1层建议卡同源） ---------- */
@@ -5898,16 +6034,11 @@ function renderConclusion(ctx) {
     `<div class="umbrella ${uCls}"><span class="u-icon">${uIcon}</span>` +
     `<span>${uText}</span><span class="u-note">${uNote}</span></div>`;
 
-  /* ---------- 模式一致性（三个模型 24h 雨量：最大值 ÷ 最小值 > DIVERGE.STRONG_RATIO → 提示分歧） ---------- */
-  const perModel24 = models.map(m => {
-    const arr = modelSeries[m].precipitation;
-    /* ③（2026-09-24 用户报）：没有降水序列的模型**不是"认为完全不下雨"**，而是"没给数据"。
-       原来写成 0：卡面会显示「GFS 0mm」，还会被算进极差 —— 凭空造出"模式分歧较大"。
-       `sumSeg` 跳过 null、整段无有效值返回 null；展示侧 `fmtAccum(null)` 已经渲染成「—」。 */
-    return arr ? sumSeg(arr.slice(fStart, fStart + WIN)) : null;
-  });
-  /* 只让**有效**模型参与比较（null 既不进 max、也不进 min） */
-  const valid24 = perModel24.filter(v => v !== null);
+  /* ---------- 模式一致性（三个模型 24h 雨量：最大值 ÷ 最小值 > DIVERGE.STRONG_RATIO → 提示分歧） ----------
+     `perModel24` / `valid24` 已在函数开头算好（T4b 把这段上移了：那句"N 个模型都没预报出成片降雨"
+     也要用它）。口径不变：**没有降水序列的模型不是"认为完全不下雨"，而是"没给数据"** ——
+     写成 0 会让卡面显示「GFS 0mm」，还会被算进极差，凭空造出"模式分歧较大"。
+     `sumSeg` 跳过 null、整段无有效值返回 null；展示侧 `fmtAccum(null)` 已经渲染成「—」。 */
   const mx = valid24.length ? Math.max.apply(null, valid24) : null;
   const mn = valid24.length ? Math.min.apply(null, valid24) : null;
   // 最小值可能正好是 0（某个模型认为完全不下雨），这时比值趋于无穷，用 Infinity 表示
@@ -6051,10 +6182,10 @@ async function doSearch() {
     Array.from(searchResults.querySelectorAll('.search-item')).forEach(el => {
       el.addEventListener('click', () => {
         const r = list[Number(el.dataset.idx)];
-        latInput.value = r.latitude;
-        lonInput.value = r.longitude;
-        // 记录地点名，查询成功后会一起存进 localStorage
-        window.__pickedPlace = [r.name, r.admin1].filter(Boolean).join('，');
+        /* ①（2026-09-25，采纳用户方案）：点选直接走 `applyCoords` ——
+           坐标与地名由它**一处**写入，少一处手写就少一处不一致的可能
+           （原来这里自己写 latInput / __pickedPlace / __pickedCoords 三样）。 */
+        applyCoords(r.latitude, r.longitude, [r.name, r.admin1].filter(Boolean).join('，'));
         coordSource = 'place';   // 地点标签以地名为准（有地名时 coordSource 不参与，保持同步而已）
         keywordInput.value = r.name || keyword;
         runQuery();
@@ -6080,6 +6211,7 @@ async function doSearch() {
    ======================================================================= */
 
 const RANGE_KEY     = 'rainPanel.range';       // 时间范围也记住，下次打开沿用
+/* 来源：【自定义】—— 24/48/72 是用户指定的三档，不是接口枚举（接口接受任意 forecast_days）。 */
 const RANGE_OPTIONS = [24, 48, 72];
 
 /** 读取上次选择的时间范围（默认 48 小时） */
@@ -6498,9 +6630,46 @@ ensureAlertBar();       // L0 与 L1 之间：条件提示条（默认隐藏，�
 /** 一组坐标写进输入框和 __pickedPlace（只改界面状态，不发请求、不写 localStorage）。
  *  输入框保留 4 位小数：它是**发给接口的值**，不是给人读的数字（界面上的精度由 fmtCoord 管）。 */
 function applyCoords(lat, lon, placeName) {
-  latInput.value = Number(Number(lat).toFixed(4));
-  lonInput.value = Number(Number(lon).toFixed(4));
+  /* 与写进输入框的是**同一个值**（4 位小数）—— `__pickedCoords` 也记它，
+     这样 placeLabel 从 latInput.value 拿到的坐标是**零误差**匹配，
+     1e-4 容差退回纯保险（原来记原始值，最多差 5e-5，属于"擦边过"）。 */
+  /* ⚠ 空值必须**拒绝**，不能让它"变成 0"：`Number('')` / `Number(null)` 都是 0，
+     而 (0, 0) 是**合法坐标**（本初子午线与赤道交点），放进来就再也分不清
+     "空的"和"真的在 0,0"。调用方（搜索点选 / 定位成功 / initApp 默认坐标 / loadCoords 恢复）
+     传的都是真数字，这道守卫只是把"哪天不小心传了空"挡在门外 —— 静默不动输入框，
+     而不是写进去一个假坐标。 */
+  const rawLa = numOrNull(lat), rawLo = numOrNull(lon);
+  if (rawLa === null || rawLo === null) return;
+  const la = Number(rawLa.toFixed(4));
+  const lo = Number(rawLo.toFixed(4));
+  latInput.value = la;
+  lonInput.value = lo;
   window.__pickedPlace = placeName || '';
+  /* ①（2026-09-25 用户实测报）：地名必须**与坐标绑在一起**。
+     原来只写 __pickedPlace、任何路径都不清除它 —— 于是"先搜『达坂城』、再手动改坐标"
+     之后标签还写着达坂城，而且 `saveCoords` 会把这个错名字写进 localStorage，刷新后继续骗。
+     修法按用户指定：**不在写入端清**（那条路径太多），改成**读取端校验** ——
+     记下取名时的坐标，用的时候比对（1e-4 容差，正好是输入框保留的小数位量级）。 */
+  window.__pickedCoords = placeName ? { lat: la, lon: lo } : null;
+}
+
+/** 取"当前坐标对应的地名"：只有当初记下的坐标与现在**一致**（1e-4 容差）才认。
+ *  坐标被手动改过 → 返回空串，标签退回「当前位置 · 39.90, 116.41」/「默认地点 · …」。
+ *  `placeLabel` 与 `saveCoords` 都先过这一关（同一处校验，两个消费点）。 */
+function pickedPlaceFor(lat, lon) {
+  const pc = window.__pickedCoords;
+  const name = (typeof window.__pickedPlace === 'string' ? window.__pickedPlace : '').trim();
+  if (!name || !pc) return '';
+  /* ⚠ 同 `landmarkAt`：必须用 `numOrNull`，不能直接 `Number()` ——
+     否则空串 / null 会变成 0，与 `__pickedCoords` 里**真正的** { lat: 0, lon: 0 } 撞上，
+     凭空认领一个地名（(0,0) 是合法坐标，不是空的）。
+     ⚠ 存下来的那一对也要先验：`Math.abs(null - la)` 同样是 0，漏一步就等于没防。 */
+  const pLa = numOrNull(pc.lat), pLo = numOrNull(pc.lon);
+  if (pLa === null || pLo === null) return '';
+  const la = numOrNull(lat), lo = numOrNull(lon);
+  if (la === null || lo === null) return '';
+  const TOL = 1e-4;
+  return (Math.abs(pLa - la) <= TOL && Math.abs(pLo - lo) <= TOL) ? name : '';
 }
 
 /** 定位失败的中文说明；code 0 = 浏览器不支持（原生错误码从 1 起，所以 0 不会撞车）。
