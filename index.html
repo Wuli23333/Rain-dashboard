@@ -5,6 +5,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" data-page-node-id="wlkIDZQclhgI680PNq0luW" />
 <title>降水快报</title>
 
+<!-- ========== 版本：2026-09-25 · 极端天气修正（P0-A ~ P1-F） ==========
+     用户实测两个极端点（东方站 −64℃、某地 26~39.2℃）后，发现五处"页面说了不该说的话"。
+     本轮改动：
+       P0-A 新增总分托底 applyScoreFloor（SCORE_TOTAL_TRIM = 5）——
+            "一个维度爆表 + 其余维度没事"不再被加权平均摊薄成温和措辞；
+            渲染层会如实写出"总分已按最难受的一项托底（该项 N 分）"。
+       P0-B FEELS_LEVELS 两端各加密（冷端 3 档→5 档、热端 3 档→5 档），中间分界不动。
+       P0-C OUTFIT_TIERS 补上热端（HOT_HI_C / SCORCH_C）与冷端封底（POLAR_C / DEEP_C）；
+            「早晚添衣」改成"温差大 **且** 最低温确实偏凉"两个条件。
+       P0-D 提示条 feels-cold / feels-hot 改为**查 FEELS_LEVELS**（档名 + 该档后果），不再写死。
+       P0-E TEMP_SCORE_STOPS 两端拉长 —— 100 分留给真正的极端（旧表 0℃ / 35℃ 就双双封顶）。
+       P1-F 删除「我有伞」偏好（那条分支在所有调用点都跑不到）；wetRiskText 去掉 prefs 形参。
+
+     ⚠ 以下行为变化是**预期**的，不是 bug：
+       · 穿衣 hint 分界整体上移：20℃ 从「薄外套就行」变成「长袖或薄衫」；
+       · 带小字评分的场景若"最难受的一项"超出其余维度 5 分以上，总分会被托底抬高
+         （例：−5℃ 场景 → 63；雨 100 分场景 → 95；东方站 / 死亡谷 → 95；
+           40℃ → 80.6，主值随之进「能不出门就别出门」）；
+       · −10℃ 的温度不适分从 100 降到 76（"有点冷"与"冻伤"不再同分）。
+
+     测试：1175 项全绿（12 套 + 审计器自检）。改动理由与逐条判断见 HANDOFF.md 第 4 节。 -->
+
 <!-- ========== 图表库 Chart.js（内联，2026-09-24 C8） ==========
      原先走 CDN（jsdelivr 主源 + unpkg 回退 + document.write 补脚本），但：
        · 两个域名在国内容易同时不可达 → 回退等于没回退；
@@ -1066,18 +1088,29 @@ const RAIN_GRADE_24H = [
 
 /* -------------------- 【经验值】体感温度档位（℃） --------------------
    判据是"体感温度"（apparent_temperature），不是气温 —— 同样的 5℃，
-   有风就是另一个体感。档位取常见的体感描述，不追求气象学严格性。 */
+   有风就是另一个体感。档位取常见的体感描述，不追求气象学严格性。
+
+   ⚠ 2026-09-25 加密（用户实测）：原表最冷一档是 `max: -20`、最热一档是 `Infinity` ——
+     **两端都是开口的大桶**，于是 −21℃ 与 −71.5℃（东方站）拿到同一句、32℃ 与 50℃ 同理。
+     现在冷端 3 档 → 5 档、热端 3 档 → 5 档，**中间分界（5/10/18/26/30/35）保持原样**。
+
+   ⚠ `tip` 是**提示条与 L2 共用**的，所以必须短（≤12 字），别写成整句话。
+   ⚠ 档名不得与 OUTFIT_TIERS 的措辞重复（同一页会出现两套"舒适/偏凉"）。 */
 const FEELS_LEVELS = [
-  { max: -20,      name: '极寒',   tip: '暴露皮肤很快冻伤，非必要不外出', cls: 'c-danger'  },
-  { max: -10,      name: '严寒',   tip: '需重装防护，注意手脚保暖',       cls: 'c-danger'  },
-  { max: 0,        name: '寒冷',   tip: '厚冬装，注意防冻',               cls: 'c-warn'    },
-  { max: 5,        name: '冷',     tip: '需要厚外套',                     cls: 'c-warn'    },
-  { max: 10,       name: '凉',     tip: '外套正合适',                     cls: 'c-accent2' },
-  { max: 18,       name: '舒适偏凉', tip: '薄外套即可',                   cls: 'c-accent'  },
-  { max: 26,       name: '舒适',   tip: '体感宜人',                       cls: 'c-ok'      },
-  { max: 30,       name: '偏热',   tip: '注意补水，避免长时间日晒',       cls: 'c-warn'    },
-  { max: 35,       name: '闷热',   tip: '减少户外活动',                   cls: 'c-orange'  },
-  { max: Infinity, name: '酷热',   tip: '避免长时间户外，防中暑',         cls: 'c-danger'  }
+  { max: -50,      name: '极地严寒', tip: '暴露皮肤几分钟内就会冻伤', cls: 'c-danger'  },
+  { max: -35,      name: '极端严寒', tip: '暴露皮肤十分钟内会冻伤',   cls: 'c-danger'  },
+  { max: -25,      name: '严寒',     tip: '必须重装防护，别露皮肤',   cls: 'c-danger'  },
+  { max: -15,      name: '酷寒',     tip: '厚羽绒加帽子手套围巾',     cls: 'c-warn'    },
+  { max: -5,       name: '寒冷',     tip: '厚冬装，注意防冻',         cls: 'c-warn'    },
+  { max: 5,        name: '冷',       tip: '需要厚外套',               cls: 'c-warn'    },
+  { max: 10,       name: '凉',       tip: '外套正合适',               cls: 'c-accent2' },
+  { max: 18,       name: '舒适偏凉', tip: '薄外套即可',               cls: 'c-accent'  },
+  { max: 26,       name: '舒适',     tip: '体感宜人',                 cls: 'c-ok'      },
+  { max: 30,       name: '偏热',     tip: '注意补水，避开日晒',       cls: 'c-warn'    },
+  { max: 35,       name: '热',       tip: '少在正午外出',             cls: 'c-orange'  },
+  { max: 40,       name: '闷热',     tip: '减少户外活动，多补水',     cls: 'c-orange'  },
+  { max: 45,       name: '酷热',     tip: '避免户外，小心中暑',       cls: 'c-danger'  },
+  { max: Infinity, name: '极端高温', tip: '有中暑风险，别在户外久留', cls: 'c-danger'  }
 ];
 
 /* -------------------- 【经验值】阵风档位（km/h） --------------------
@@ -1124,20 +1157,35 @@ const RAIN_FEEL_LEVELS = [
 
 /* -------------------- 【经验值】出门穿衣档（℃） --------------------
    只服务 L1 卡③「穿什么出门」的那句人话（tempOutfitText）。
-   判据取 24 小时内的**最低**气温：早晚那一头才决定要不要带外套。
+   冷端判据取 24 小时内的**最低**气温（早晚那一头才决定要不要带外套），
+   热端判据取**最高**气温（决定要不要防晒/防中暑）—— 两端各看各的。
    分界值按常见体感划分，写进常量表以便日后单独调，**不参与综合评分**
    （评分用的是 computeScores 里那套温度不适曲线，两者是二把尺子，故意不复用）。
+
+   ⚠ 2026-09-25 用户实测报的三件事：
+     · −64℃ 只说「羽绒服，注意保暖」—— 最冷那档**没有下界**；
+     · 39.2℃ 只说「短袖就行」—— **完全没看最高温**，热端整半张表都不存在；
+     · 26.2~39.2℃ 说「早晚添衣」—— 添衣只看温差、不看绝对温度，最低 26℃ 是"早晚都热"。
+     现在冷端封底（POLAR_C/DEEP_C）、补上热端（HOT_HI_C/SCORCH_C）、
+     并把"添衣"改成**温差大 且 最低温确实偏凉**两个条件。
 
    注意：档位名必须与 FEELS_LEVELS（体感档）里的措辞保持区分，
    否则同一页上会出现两套含义不同的"舒适/偏凉"。 */
 const OUTFIT_TIERS = {
-  WARM_C: 22,   // ≥ 22℃ → 短袖就行
-  MILD_C: 15,   // ≥ 15℃ → 薄外套就行
-  COOL_C:  8,   // ≥  8℃ → 外套或夹克
-  COLD_C:  0,   // ≥  0℃ → 厚外套，早晚偏冷；低于 0℃ → 羽绒服，注意保暖
-  /* 日内温差 ≥ 这个值 → hint 补一句"早晚添衣"。
-     这是主值（温度区间）给不出的判断：区间只说明跨度，不说明怎么加减衣服。 */
-  SWING_C: 10
+  /* 冷端：由**最低温**决定穿什么 */
+  POLAR_C: -25,  // < -25℃ → 极地级防寒，尽量别出门
+  DEEP_C:  -12,  // < -12℃ → 重装防寒，别露皮肤
+  COLD_C:   -2,  // <  -2℃ → 羽绒服，注意保暖
+  CHILL_C:   6,  // <   6℃ → 厚外套，早晚偏冷
+  COOL_C:   13,  // <  13℃ → 外套或夹克
+  MILD_C:   19,  // <  19℃ → 薄外套就行
+  WARM_C:   26,  // <  26℃ → 长袖或薄衫；≥ 26℃ → 短袖就行
+  /* 热端：由**最高温**决定要不要防晒 / 防中暑（旧版完全没有这一半） */
+  HOT_HI_C:  30, // ≥ 30℃ → 注意防晒补水
+  SCORCH_C:  36, // ≥ 36℃ → 午后酷热防中暑
+  /* 添衣：温差大 **且** 最低温确实偏凉 —— 两个条件缺一不可 */
+  SWING_C:    10,
+  SWING_LO_C: 18
 };
 
 /* -------------------- 【经验值】能见度档位（米） --------------------
@@ -1200,22 +1248,48 @@ const ALERT_RULES = [
        两句都真，却把调和推给读者 —— 提示条本该**补充** L0，不该反驳 L0。
        页面对这种组合是算得出答案的（雨需要遮 + 伞撑不住 → 带雨衣），所以按 decision.action 分岔。
        第二个参数由 computeAlerts 传入。
-       ⚠ 不传 decision 时（单测直接调 computeAlerts）必须**逐字保持**原措辞，
-         现有 S14 断言硬编码了那句文案，靠这一点保住。 */
-    text: (c, d) => `阵风 ${fmtWind(c.gustPeak)} km/h，` +
-      (d && d.action === 'umbrella' ? '伞可能撑不住，考虑雨衣' : '伞可能被吹翻') },
+       ⚠ 同日**审计**又发现一处写死：这里原来没有档名，于是阵风 95（GUST_LEVELS 的「暴风，
+         有危险，请留在室内」）也只说"伞可能被吹翻"。现已并上档名。
+       ⚠ 原来这里写着"不传 decision 时**逐字保持**原措辞，靠 S14 断言保住" ——
+         该承诺随本轮改动**已更新**（见 tests 里那条断言的注释）：要保的是
+         "不传 decision 时走**通用**分支"，而不是"一个字节都不许动"。 */
+    /* ⚠ 2026-09-25（同 feels-cold 的同类问题）：原来写死成「伞可能被吹翻」，
+       而 GUST_LEVELS 里 90km/h 以上是「暴风（有危险，请留在室内）」——
+       阵风 95 时提示条说"伞可能被吹翻"、卡片说"请留在室内"，轻重不符。
+       现在把档名并进来（保留与 L0 分岔的那半句，它解决的是"带伞 vs 撑不住"的矛盾）。 */
+    text: (c, d) => {
+      const lv = gustLevel(c.gustPeak);
+      return (lv ? `${lv.name}，` : '') + `阵风 ${fmtWind(c.gustPeak)} km/h，` +
+        (d && d.action === 'umbrella' ? '伞可能撑不住，考虑雨衣' : '伞可能被吹翻');
+    } },
 
   { id: 'vis', prio: 3, cls: 'a-warn', at: '能见度 < 2km',
     when: c => numOrNull(c.visMin) !== null && c.visMin < ALERT_THRESHOLD.VIS_KM * 1000,
-    text: c => `有雾感，能见度仅 ${fmtVis(c.visMin)}` },
+    /* ⚠ 2026-09-25（同 feels-cold 的同类问题）：原来写死成「有雾感」，
+       而 VIS_LEVELS 里"有雾感"只是 1~5km 那一档 —— 能见度 300m（浓雾）时
+       提示条说"有雾感"、卡片说"浓雾"，两处互相矛盾。改成查表：档名 + 该档后果。 */
+    text: c => {
+      const lv = visLevel(c.visMin);
+      return (lv ? `${lv.name}，` : '') + `能见度仅 ${fmtVis(c.visMin)}`;
+    } },
 
   { id: 'feels-cold', prio: 4, cls: 'a-info', at: '体感下限 < 5℃',
     when: c => numOrNull(c.feelsMin) !== null && c.feelsMin < ALERT_THRESHOLD.FEELS_COLD_C,
-    text: c => `体感仅 ${fmtTemp(c.feelsMin)}℃，注意保暖` },
+    /* ⚠ 2026-09-25 用户实测报：原来写死成「注意保暖」，于是 −71.5℃（东方站）
+       和 4℃ 拿到同一句 —— 而 FEELS_LEVELS 里明明写着"暴露皮肤几分钟内就会冻伤"。
+       改成查表：档名 + 该档的后果。吃 FEELS_LEVELS 的 name 与 tip，不另写文案。 */
+    text: c => {
+      const lv = feelsLevel(c.feelsMin);
+      return `体感仅 ${fmtTemp(c.feelsMin)}℃` + (lv ? `（${lv.name}），${lv.tip}` : '');
+    } },
 
   { id: 'feels-hot', prio: 4, cls: 'a-info', at: '体感上限 > 32℃',
     when: c => numOrNull(c.feelsMax) !== null && c.feelsMax > ALERT_THRESHOLD.FEELS_HOT_C,
-    text: c => `体感达 ${fmtTemp(c.feelsMax)}℃，注意补水` }
+    /* 同 feels-cold：查表，别写死。 */
+    text: c => {
+      const lv = feelsLevel(c.feelsMax);
+      return `体感达 ${fmtTemp(c.feelsMax)}℃` + (lv ? `（${lv.name}），${lv.tip}` : '');
+    } }
 ];
 
 /* -------------------- 【自定义】"官方天气现象"卡认定的现象代码 --------------------
@@ -1386,15 +1460,32 @@ const WIND_SCORE_STOPS = [
   { x: 40, y: 100 }
 ];
 
-/* 温度不适：20~26℃ 舒适（0 分），偏离越远越高，<0℃ 或 >35℃ 封顶 100。
+/* 温度不适（气温，℃）：20~26 舒适（0 分），偏离越远越高。
    用 24h 的**最低温**算冷端、**最高温**算热端，取两者较大者 ——
-   与提示条同一思路：用平均会漏掉"白天 30℃、夜里 -3℃"这种真正难受的天。 */
+   与提示条同一思路：用平均会漏掉"白天 30℃、夜里 -3℃"这种真正难受的天。
+
+   ⚠ 2026-09-25 两端拉长（与 P0-A 的总分托底配套，必须一起做）：
+     旧表 **0℃ / 35℃ 就双双封顶 100** —— "有点冷"和"冻伤"、"有点热"和"致命高温"打同一个分。
+     单看没问题，但配上总分托底就会失控：气温一到 35℃ 就是"温度不适 100 分"
+     → 托底到 85 → "能不出门就别出门"。现在把 100 分留给真正的极端。 */
 const TEMP_SCORE_STOPS = [
-  { x: 0,  y: 100 },
-  { x: 20, y: 0   },
-  { x: 26, y: 0   },
-  { x: 35, y: 100 }
+  { x: -35, y: 100 },
+  { x: -25, y: 94 },
+  { x: -15, y: 84 },
+  { x: -5, y: 68 },
+  { x: 5, y: 42 },
+  { x: 15, y: 10 },
+  { x: 20, y: 0 },
+  { x: 26, y: 0 },
+  { x: 31, y: 20 },
+  { x: 35, y: 45 },
+  /* ⚠ 2026-09-25 用户复核：这里原来写 y:72 —— 热端斜率偏平，40℃ 只有 77.6 分，
+     卡在「挺难受」（< 80），而 40℃ 气温 deserve「能不出门就别出门」。
+     改 82 之后：40℃ → 85.6（进档）、39.2℃ → 82.7、35℃ → 45（不变，「有点将就」合理）。 */
+  { x: 39, y: 82 },
+  { x: 44, y: 100 }
 ];
+/* 首尾之外靠 piecewise 外推 + scoreLinear 夹到 0~100，不用额外处理。 */
 
 /* 能见度不适：用 24h 最低能见度（米）。>10km → 0，<500m → 100。 */
 const VIS_SCORE_STOPS = [
@@ -1516,8 +1607,16 @@ const WET_RISK_LEVELS = [
 const PREF_BOOST = { WIND: 1.5, TEMP: 1.5 };
 const PREF_BIKE_GUST_KMH = 30;   // 会骑车时，阵风超过这个值才提醒（低于"伞被吹翻"的 35）
 const PREF_STORE_KEY = 'rainPanel.prefs.v1';
+/* ⚠ 2026-09-25 删掉「我有伞」：它勾了**没有任何变化**。
+   查证：computeDecision / synthesizedFeelLine 调 wetRiskText 时传的是空偏好
+   （N4 定的：L0 体感句不许跟着"我有伞"变轻）；computeAlerts / computeScores /
+   renderScoreSection / dominantDim 全都只读 bike 与 cold。
+   所以 wetRiskText 里那个 `prefs.umbrella` 分支是**跑不到的死代码**，
+   而这条 hint 还写着「淋湿风险文案下调一档」—— 页面在承诺一件不会发生的事。
+   删功能而不是接回去：「淋湿风险」的信息已经进了 L0 体感句，而那句**故意**不跟偏好走
+   （跟了就会和动作句的把握打架），所以这个开关没有不矛盾的去处。
+   `loadPrefs` 按 PREF_DEFS 遍历，旧 localStorage 里多出来的 `umbrella` 键会被自动忽略。 */
 const PREF_DEFS = [
-  { key: 'umbrella', label: '我有伞',          hint: '淋湿风险文案下调一档' },
   { key: 'bike',     label: '我会骑车 / 电动车', hint: '风力影响权重 ×1.5，阵风大时提醒' },
   { key: 'cold',     label: '我怕冷',          hint: '温度不适权重 ×1.5' }
 ];
@@ -1742,14 +1841,17 @@ function effectiveRainIntensity(rain, windIdx) {
 }
 
 /** 淋湿风险文案：按有效雨强取档；勾了「有伞」就整体下调一档（最低档不再降） */
-function wetRiskText(effRain, prefs) {
+/** 有效雨强 → 淋湿风险文案（取 WET_RISK_LEVELS 里第一档 `n < max` 的 text）。
+ *  ⚠ 2026-09-25：删掉了 `prefs` 形参与 `prefs.umbrella` 降档分支 —— 那条分支跑不到
+ *  （所有调用点都传空偏好，见 PREF_DEFS 的注释）。留一个"看起来能传偏好"的假接口，
+ *  只会让人以为改偏好有用。 */
+function wetRiskText(effRain) {
   const n = numOrNull(effRain);
   if (n === null) return null;
   let idx = 0;
   for (let i = 0; i < WET_RISK_LEVELS.length; i++) {
     if (n < WET_RISK_LEVELS[i].max) { idx = i; break; }
   }
-  if (prefs && prefs.umbrella && idx > 0) idx -= 1;
   return WET_RISK_LEVELS[idx].text;
 }
 
@@ -1843,6 +1945,43 @@ function computeScores(comfort, prefs) {
     missing,
     boosted: !!(p.bike || p.cold)
   };
+}
+
+/* ★★★【自定义】总分托底（P0-A 2026-09-25 用户实测）★★★
+   总分是**加权平均**，会把"一个维度爆表 + 其余维度没事"摊薄：
+   实测东方站（气温 −64℃）温度不适 100 分，总分却只有 43（「有点将就」）——
+   因为"不下雨"与"能见度好"这两件**好事**占了 50% 的分母。
+   人在那种室外是会出事的，页面不能这么说。
+
+   TRIM 的含义：**最难的那一项，几乎不被其它维度缓冲**。
+   ⚠ 2026-09-25 用户拍板：**15 → 5**。原因是 15 太宽 —— 40℃（温度分 85.6）时
+     total = max(85.6×0.25, 85.6−15) = 70.6，仍停在「挺难受」，而 40℃ 气温 deserve
+     「能不出门就别出门」。改 5 之后 40℃ → 80.6 进档，同时极端场景（100 分）从 85 抬到 95，
+     档位不变但更贴顶。代价是 −5℃ 那类场景从 53（有点将就）变成 63（挺难受）——
+     这个方向是对的：−5℃ 说"有点将就"本来就偏轻。
+   ⚠ 不改 `computeScores` 本身 —— 它的计算与签名被测试锁着（S14 的教训）。
+     这里是套在它**外面**的一层。 */
+const SCORE_TOTAL_TRIM = 5;
+
+/** 给总分加下界：**不得低于「最难受那一项」减去可缓冲的一档**。
+ *  纯函数，返回**新对象**，不动入参。
+ *  · `total === null`（缺能见度 / 覆盖率不足）→ 原样返回：那种情况本来就不给分；
+ *  · 四个分项全不可用 → 原样返回；
+ *  · 未触发托底 → `flooredBy` 为 null，渲染层不显示任何附加说明。 */
+function applyScoreFloor(scores) {
+  if (!scores || scores.total === null) return scores;
+  const dims = [scores.rain, scores.wind, scores.temp, scores.vis]
+    .map(numOrNull).filter(v => v !== null);
+  if (!dims.length) return scores;
+  const maxDim = Math.max.apply(null, dims);
+  const floored = Math.max(scores.total, maxDim - SCORE_TOTAL_TRIM);
+  return Object.assign({}, scores, {
+    total: floored,
+    /* 触发时留个记号：渲染层要说明"总分是被最难的那一项托上来的"，
+       否则用户会奇怪"几条分都不高，总分怎么这么难看"。
+       加 0.5 的门槛：四舍五入后看不出差别时不显示这句话，免得变成噪音。 */
+    flooredBy: floored > scores.total + 0.5 ? maxDim : null
+  });
 }
 
 
@@ -3262,8 +3401,13 @@ function computeUncertainty(ctx) {
     if (totals.length >= 2) {
       medTotal = quantile(totals, 0.5);
       /* ⑤/⑪（2026-09-25，规则⑪ 上线后报出）：quantile 可能返回 null，
-         而 `null > 0` 恰好是 false —— 又是靠巧合。显式判空。 */
-      if (medTotal !== null && medTotal > 0) {          // 中位数为 0 时无法做相对比较
+         而 `null > 0` 恰好是 false —— 又是靠巧合。显式判空。
+         ⚠ 2026-09-25 补**绝对量下限**（用户问的"只判相对量、没判绝对量"）：
+         原来只判 `medTotal > 0`，于是"两个模型都报 0.6mm"（中位 0.6、极差 0.1）也算出 16%
+         的相对分歧、并给出「一致」这类评价 —— 雨量小到这种程度，"一致还是分歧"本身没有意义。
+         现在改用 UNC_RAIN_MM（全页唯一的有雨阈值）当下限：中位数不到它就不做相对比较、不给评价。
+         对照：DIVERGE.MIN_MM 早就这么做了（注释写着"雨量太小，几倍差距也无意义"），同一把尺子。 */
+      if (medTotal !== null && medTotal >= UNC_RAIN_MM) {
         const rd = (totals[totals.length - 1] - totals[0]) / medTotal * 100;
         relDiv = Number.isFinite(rd) ? rd : null;
       }
@@ -3678,11 +3822,14 @@ function computeAlerts(comfort, prefs, decision) {
       when: cc => numOrNull(cc.gustPeak) !== null && cc.gustPeak > PREF_BIKE_GUST_KMH,
       text: (cc, d) => {
         const g = fmtWind(cc.gustPeak);
+        /* ⚠ 2026-09-25：与通用 gust 条同步 —— 也带上 GUST_LEVELS 的档名，
+           否则同一张提示条上两条"阵风 X km/h"格式不同（一条有档名、一条没有）。 */
+        const lv = gustLevel(cc.gustPeak);
         const blow = numOrNull(cc.gustPeak) !== null && cc.gustPeak > ALERT_THRESHOLD.GUST_KMH
           /* 与通用 gust 条同一处分岔（同一矛盾的另一个出口）：带伞时说"考虑雨衣"。 */
           ? (d && d.action === 'umbrella' ? '，伞可能撑不住，考虑雨衣' : '，伞可能被吹翻')
           : '';
-        return `阵风 ${g} km/h，骑车 / 电动车注意侧风${blow}`;
+        return (lv ? `${lv.name}，` : '') + `阵风 ${g} km/h，骑车 / 电动车注意侧风${blow}`;
       }
     });
   }
@@ -3713,7 +3860,7 @@ function modelName(key) {
  *       优先级：雨量共识优先于概率峰值 —— 概率字段是模型直接给的、可能与雨量解耦，
  *       若 0/3 有雨却因"概率峰值>50%"判带伞，就是"都认为不下雨"配"建议带伞"的新矛盾。
  *   · 把握（高 / 中 / 低）：48h 多模型共识（rainCount/avail）+ 相对分歧（REL_DIV_TIERS）
- *   · 淋湿风险：有效雨强（WET_RISK_LEVELS，勾「有伞」下调一档）
+ *   · 淋湿风险：有效雨强（WET_RISK_LEVELS。2026-09-25 起不再有「有伞」降档）
  */
 function computeDecision(ctx, unc, comfort, prefs) {
   /* ③（2026-09-25 用户报）：这里原来有 `const p = prefs || {};`，但函数体里
@@ -3783,14 +3930,16 @@ function computeDecision(ctx, unc, comfort, prefs) {
      不会给出互相矛盾的建议（用户 2026-09-24 的硬约束）。 */
   const eff = comfort && numOrNull(comfort.effRainPeak);
   /* N4（2026-09-24）：这里原来算的是 `wetRiskText(eff, p)` —— **带偏好**，
-     但唯一的消费者是 L0 的体感句，而体感句的硬约束是"不跟着『我有伞』把自己调轻"
+     但唯一的消费者是 L0 的体感句，而体感句的硬约束是"不跟着偏好把自己调轻"
      （见 synthesizedFeelLine 的说明）。所以：
-       · 偏好参数去掉（传空偏好）；
+       · 偏好参数去掉；
        · 结果**传给** synthesizedFeelLine（不再让它自己重算一次）——
-         从"两次调用 + 两处口径"收敛成一次。 */
+         从"两次调用 + 两处口径"收敛成一次。
+     ⚠ 2026-09-25：`wetRiskText` 的 `prefs` 形参连同 `umbrella` 分支**已整体删除**
+       （那条分支跑不到，见 PREF_DEFS 的注释）。 */
   let wetRisk = null;
   if (eff !== null && eff > 0) {
-    const wet = wetRiskText(eff, {});
+    const wet = wetRiskText(eff);
     if (wet) wetRisk = wet;          // 注意：这里存的是**后果**原文，不再加"淋湿风险："前缀
   }
 
@@ -3876,7 +4025,7 @@ function synthesizedFeelLine(comfort, wetRisk) {
      比在字符串里猜语义干净（这也正是 B2 定下的做法）。 */
   /* N4：优先用 computeDecision 已经算好的那一份（同一口径，少一次重算）。
      只有单测直接调用（没传第二参数）时才自己算一次。 */
-  const wetRaw = (wetRisk !== undefined) ? wetRisk : wetRiskText(eff, {});
+  const wetRaw = (wetRisk !== undefined) ? wetRisk : wetRiskText(eff);
 
   /* 兜底取 lv.feel。
      2026-09-24 用户拍板修订后，`RAIN_FEEL_LEVELS` 只剩 `feel` 一个描述字段
@@ -4151,8 +4300,10 @@ function renderKpis(ctx) {
   /* 条件提示条（L0 与 L1 之间）：只有满足条件才出现，一条都不满足时完全不占空间。 */
   renderAlerts(comfort, prefs, ctx.model.decision);
 
-  /* 阶段三·综合评分 + 我的偏好：都在第 3 层折叠区（顶部），不占第一屏。 */
-  const scores = computeScores(comfort, prefs);
+  /* 阶段三·综合评分 + 我的偏好：都在第 3 层折叠区（顶部），不占第一屏。
+     P0-A（2026-09-25）：外面再套一层「总分托底」—— 极端天气下不能让
+     "没事的维度"把爆表的那一项摊薄（见 applyScoreFloor）。 */
+  const scores = applyScoreFloor(computeScores(comfort, prefs));
   renderScoreSection(comfort, scores, prefs);
   renderPrefSection(prefs);
 
@@ -4396,12 +4547,31 @@ function coreCards(ctx, comfort) {
 function tempOutfitText(tMin, tMax) {
   const lo = numOrNull(tMin), hi = numOrNull(tMax);
   if (lo === null) return '气温数据不可用';
-  let base = lo >= OUTFIT_TIERS.WARM_C ? '短袖就行' :
-             lo >= OUTFIT_TIERS.MILD_C ? '薄外套就行' :
-             lo >= OUTFIT_TIERS.COOL_C ? '外套或夹克' :
-             lo >= OUTFIT_TIERS.COLD_C ? '厚外套，早晚偏冷' : '羽绒服，注意保暖';
-  /* 日内温差 ≥ OUTFIT_TIERS.SWING_C 时，同一句建议要覆盖两头，补一句怎么增减 */
-  if (hi !== null && (hi - lo) >= OUTFIT_TIERS.SWING_C) base += '，早晚添衣';
+
+  /* 冷端：每一档都封底 —— 旧版最冷那档没有下界，−1℃ 和 −64℃ 是同一句。 */
+  let base =
+    lo < OUTFIT_TIERS.POLAR_C ? '极地级防寒，尽量别出门' :
+    lo < OUTFIT_TIERS.DEEP_C  ? '重装防寒，别露皮肤' :
+    lo < OUTFIT_TIERS.COLD_C  ? '羽绒服，注意保暖' :
+    lo < OUTFIT_TIERS.CHILL_C ? '厚外套，早晚偏冷' :
+    lo < OUTFIT_TIERS.COOL_C  ? '外套或夹克' :
+    lo < OUTFIT_TIERS.MILD_C  ? '薄外套就行' :
+    lo < OUTFIT_TIERS.WARM_C  ? '长袖或薄衫' :
+                                '短袖就行';
+
+  if (hi !== null) {
+    if (hi >= OUTFIT_TIERS.SCORCH_C) {
+      /* 36℃+ 的提醒优先于温差 —— 那种天说"添衣"是废话 */
+      base += '，午后酷热防中暑';
+    } else if (hi >= OUTFIT_TIERS.HOT_HI_C) {
+      base += '，注意防晒补水';
+    } else if ((hi - lo) >= OUTFIT_TIERS.SWING_C && lo < OUTFIT_TIERS.SWING_LO_C) {
+      /* ⚠ 2026-09-25 用户实测报：旧版只判 `温差 ≥ SWING_C`，
+         于是 26.2~39.2℃ 也输出"早晚添衣" —— 最低 26.2℃ 是"早晚都热"。
+         **温差大 ≠ 要添衣**，第二个条件（最低温 < SWING_LO_C）不能省。 */
+      base += '，早晚添衣';
+    }
+  }
   return base;
 }
 
@@ -5092,6 +5262,9 @@ function dominantDim(scores, comfort, prefs) {
   if (!scores) return null;
   const c = comfort || {};
   const w = scoreDimWeights(scores, prefs);
+  /* ⚠ 2026-09-25 自省：我一度以为这行是死变量（只读了函数前半段），删掉后
+     下方 `best.key === 'WIND' && p.bike` 立刻 ReferenceError、整个套件抛异常。
+     **删变量前必须读完整函数** —— 教训已记进 HANDOFF 第 6 节。 */
   const p = prefs || {};
   const sRain = numOrNull(scores.rain), sWind = numOrNull(scores.wind);
   const sTemp = numOrNull(scores.temp), sVis  = numOrNull(scores.vis);
@@ -5229,6 +5402,13 @@ function renderScoreSection(comfort, scores, prefs) {
     covLine = '<div class="score-cov">覆盖率 ' + covPct + '%</div>';
   }
 
+  /* P0-A：总分被"最难的那一项"托底时必须说明 —— 否则用户会奇怪
+     "几条分都不高，总分怎么这么难看"。未触发时是空串，不留空节点。 */
+  const floorNote = (scores.flooredBy !== null && scores.flooredBy !== undefined)
+    ? '<div class="score-cov">总分已按最难受的一项托底（该项 ' +
+      Math.round(scores.flooredBy) + ' 分）</div>'
+    : '';
+
   const boostNotes = [];
   if (scores.hasRain) boostNotes.push('有雨时风力权重 ×1.5');
   if (p.bike)        boostNotes.push('会骑车：风力权重 ×1.5');
@@ -5242,6 +5422,7 @@ function renderScoreSection(comfort, scores, prefs) {
     totalHtml +
     rows +
     covLine +
+    floorNote +
     '<div class="score-note">' + scoreWeightsText() +
       (boostNotes.length ? '　·　' + boostNotes.join('　·　') : '') + '</div>' +
     '<div class="score-custom">' + SCORE_CUSTOM_NOTE + '</div>' +
