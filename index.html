@@ -1253,9 +1253,10 @@ const PROB48_TIERS = {
 /* 【经验值】偏多情形（P90 分位）的提醒阈值 */
 const P90_TIERS = {
   HEAVY_MM:    25,   // P90_48h ≥ 25 → 「留意内涝」
-  MODERATE_MM: 10,   // P90_48h ≥ 10 → 「预留时间」
-  RATIO:       1.2,  // P90_7d > 中位数 × 1.2 → 长时效不确定性偏大
-  MIN_MM:       0.5  // P90_7d > 0.5mm 才谈"偏多"（太小没意义）
+  MODERATE_MM: 10    // P90_48h ≥ 10 → 「预留时间」
+  /* ④（2026-09-25 用户报）：RATIO / MIN_MM 已删 —— 7 天"偏多情形"那条建议在
+     2026-09-24 分层重组时搬去 L2（走 b.p90_all），生产路径不再经过这两个阈值，
+     全项目（含 tests/）零引用。审计规则⑩（对象常量逐字段查引用）守这类死字段。 */
 };
 
 /* 【经验值】雨雪判断：温度低 + 有降水 → 可能雨夹雪/雪 */
@@ -1441,9 +1442,10 @@ const SCORE_DIM_REASON = {
 };
 
 /* -------------------- 【自定义】淋湿风险档位（按有效雨强） --------------------
-   综合建议副句里的"淋湿风险"用这四档；勾了「有伞」就整体下调一档（最低档不再降）。
+   综合建议副句里的"淋湿风险"用这五档；勾了「有伞」就整体下调一档（最低档不再降）。
+   （2026-09-25 校正：原写"这四档"；A 方案在 0.5~2.5 之间补了一档之后已经是 5 档。）
 
-   ⚠ **四档一律不含"伞"字**（2026-09-24 N2）：
+   ⚠ **五档一律不含"伞"字**（2026-09-24 N2）：
    原来首档「有伞基本不会湿」与末档「伞基本挡不住…」带伞，于是
    `synthesizedFeelLine` 不得不用 `indexOf('伞')` 在**运行时**把它们滤掉、
    再退回 `lv.feel` —— 结果那两档的 L0 体感句与 L1 卡② 的 hint **逐字重复**
@@ -1591,8 +1593,13 @@ const P90_IS_NOT_WORST_NOTE = '这只是集合预报里的偏多情形，不代�
 const FEEL_LINE_MAX_CHARS = 20;
 
 /* L1 核心卡的固定张数（协议：一张不多 —— 2026-09-24 分层重组由 6 改 3，值见本常量）。
-   骨架屏与正式渲染都引用它 —— 改这一处，两边一起改，
-   不会出现"骨架与真卡张数不一致"的跳变。 */
+   ⚠ 2026-09-25 校正（用户报）：**只有骨架屏（renderKpiSkeleton）引用它**；
+   `coreCards()` 里是三段硬编码的 cards.push —— 所以原来"骨架屏与正式渲染都引用它、
+   改这一处两边一起改"这句承诺是**假的**，把常量改成 4 会立刻出现
+   "骨架 4 张、真卡 3 张"的跳变（正是注释想防的那个）。
+   现在两边靠**测试**对齐：`tests/scenario-layered-ui.js` 有一条数值断言
+   `coreCards(lastCtx, lastCtx.model.comfort).length === CORE_CARD_COUNT`，
+   谁只改一边它就会红。骨架屏那一侧仍由本常量直接保证。 */
 const CORE_CARD_COUNT = 3;
 
 /* 第 3 层折叠区的展开状态存这个键，刷新后保持 */
@@ -1934,6 +1941,11 @@ const CONCLUSION_CSS = `
 .alert b { font-weight: 700; }
 .alert.warn { background: rgba(251, 191, 36, 0.10); border-color: rgba(251, 191, 36, 0.32); color: #f3d489; }
 .alert.ok   { background: rgba(148, 163, 184, 0.07); color: var(--muted); }
+/* 中性档（2026-09-25 用户报）：模式一致性里"只有 N 个模型"那一支原来用裸 alert 类，
+   只有描边、没有底色，和 alert warn / alert ok 摆在一起不像三兄弟。
+   配色与已有的 alert-chip.a-info 对齐。
+   ⚠ 这段 CSS 在模板串 CONCLUSION_CSS 里，注释里**不能出现反引号**（会提前结束模板串）。 */
+.alert.info { background: rgba(56, 189, 248, 0.08); border-color: rgba(56, 189, 248, 0.28); color: var(--accent); }
 
 .sub-title { font-size: 12.5px; color: var(--muted); margin: 2px 0 4px; }
 
@@ -3100,7 +3112,12 @@ function computeUncertainty(ctx) {
        从而低估某个模型的 48h 总量，进而影响「降雨是否一致」与「雨量分歧」。
        现在缺失保持 null，交给 sumSeg 跳过（峰值比较里 null 也不参与）。 */
     const seg = series.slice(fStart, fStart + win).map(v => numOrNull(v));
-    if (!seg.length) return;          // 该模型这一段完全没有小时数据 → 不参与统计
+    /* ⑥（2026-09-25 用户报）：原来判 `!seg.length`，而 seg 是 map 出来的**等长**数组 ——
+       只有切片本身为空时才为 0，"整段全是 null"的模型照样通过，被算进 avail，
+       于是「N/3 个模型可用」数不准；更糟的是只剩一个有效模型时，
+       「降雨是否一致」卡会说出"一致，都认为不下雨"，甚至凭空报"分歧"。
+       按注释本意改成判有效值：整段一个有效小时都没有 → 这个模型不参与统计。 */
+    if (!seg.some(v => v !== null)) return;
 
     const total = sumSeg(seg);
 
@@ -3130,7 +3147,9 @@ function computeUncertainty(ctx) {
     const totals = rainSet.map(m => m.total).filter(v => v !== null).sort((a, b) => a - b);
     if (totals.length >= 2) {
       medTotal = quantile(totals, 0.5);
-      if (medTotal > 0) {                               // 中位数为 0 时无法做相对比较
+      /* ⑤/⑪（2026-09-25，规则⑪ 上线后报出）：quantile 可能返回 null，
+         而 `null > 0` 恰好是 false —— 又是靠巧合。显式判空。 */
+      if (medTotal !== null && medTotal > 0) {          // 中位数为 0 时无法做相对比较
         const rd = (totals[totals.length - 1] - totals[0]) / medTotal * 100;
         relDiv = Number.isFinite(rd) ? rd : null;
       }
@@ -3581,7 +3600,9 @@ function modelName(key) {
  *   · 淋湿风险：有效雨强（WET_RISK_LEVELS，勾「有伞」下调一档）
  */
 function computeDecision(ctx, unc, comfort, prefs) {
-  const p = prefs || {};
+  /* ③（2026-09-25 用户报）：这里原来有 `const p = prefs || {};`，但函数体里
+     从未用过 p，也没用过 prefs —— 死变量，已删。形参 `prefs` 保留：
+     签名被调用方与测试锁着（S12），不为"参数表好看"去动它。 */
 
   /* ---- 24h 口径（动作判据的兜底 + 结论卡四项指标） ---- */
   const { fTime, fStart, fHours, models, modelSeries } = ctx;
@@ -3617,7 +3638,10 @@ function computeDecision(ctx, unc, comfort, prefs) {
   } else if (allRain) {
     action = 'umbrella'; confidence = 'mid';
     headline = '建议带伞，但雨量不确定'; cls = 'adv-warn';
-  } else if (peakProb > UMBRELLA_PROB_PCT || total24 > RAIN24_VERDICT.LIGHT_MM) {
+    /* ⑤/⑪（2026-09-25，规则⑪ 上线后报出）：peakProb / total24 都可能是 null（缺数据），
+       而 `null > 正数` 恰好是 false —— 靠巧合会静默走 else 分支。显式判空。 */
+  } else if ((peakProb !== null && peakProb > UMBRELLA_PROB_PCT) ||
+             (total24 !== null && total24 > RAIN24_VERDICT.LIGHT_MM)) {
     action = 'umbrella'; confidence = 'low';
     headline = '建议带伞，但模型意见不一，临近看雷达'; cls = 'adv-danger';
   } else {
@@ -3632,8 +3656,8 @@ function computeDecision(ctx, unc, comfort, prefs) {
   const umbrellaCls  = heavyRain ? 'heavy' : (action === 'umbrella' ? 'need' : 'no');
   const umbrellaIcon = heavyRain ? '⚠️' : (action === 'umbrella' ? '☔' : '☀️');
   const umbrellaReasons = [];
-  if (peakProb > UMBRELLA_PROB_PCT) umbrellaReasons.push(`概率峰值 ${fmtProb5(peakProb)}%`);
-  if (total24 > RAIN24_VERDICT.LIGHT_MM) umbrellaReasons.push(`累计雨量 ${fmtAccum(total24)} 毫米`);
+  if (peakProb !== null && peakProb > UMBRELLA_PROB_PCT) umbrellaReasons.push(`概率峰值 ${fmtProb5(peakProb)}%`);
+  if (total24 !== null && total24 > RAIN24_VERDICT.LIGHT_MM) umbrellaReasons.push(`累计雨量 ${fmtAccum(total24)} 毫米`);
   if (heavyRain) umbrellaReasons.push(`最大雨强 ${fmt(maxIntensity, PRECISION.HOUR_MM)} 毫米/小时`);
   const umbrellaNote = umbrellaReasons.length ? umbrellaReasons.join(' ｜ ') : '未来 24 小时无明显降水信号';
 
@@ -3732,7 +3756,7 @@ function synthesizedFeelLine(comfort, wetRisk) {
      2026-09-24 N2：这里**不再做 `indexOf('伞')` 运行时过滤**。
      原来 WET_RISK_LEVELS 有两档带伞，被滤掉后退回 `lv.feel` ——
      于是那两档的 L0 体感句与 L1 卡② 的 hint **逐字重复**。
-     现在四档措辞本身就无伞（改在常量表里），契约由常量表保证，
+     现在档位措辞本身就无伞（改在常量表里，档数见 WET_RISK_LEVELS），契约由常量表保证，
      比在字符串里猜语义干净（这也正是 B2 定下的做法）。 */
   /* N4：优先用 computeDecision 已经算好的那一份（同一口径，少一次重算）。
      只有单测直接调用（没传第二参数）时才自己算一次。 */
@@ -3754,11 +3778,14 @@ function synthesizedFeelLine(comfort, wetRisk) {
      硬切（形如 `xxx.slice(0, N)`）会造出「短时强降水，倾盆，路面出现水流，伞近乎无」这种病句 ——
      用户明确点过：**硬切字符串与"页面不撒谎"是同一级别的毛病**。
 
-     ⚠ 实测（2026-09-24）：在**当前两张文案表**下，"档名 + 后果"的所有组合长度上限
-     恰好是 20 字（最长的一条是「大雨，雨滴砸得实，鞋几分钟湿透，裤腿也湿」= 20），
-     所以下面这段目前永远不会触发，是防御性代码。
-     必须留着：日后谁把某档 feel/wetRaw 改长、或新增一档，这里就是唯一那道闸。
-     `scenario-uncertainty.js` 的 ①f 用注入式超长档把这条分支**强制跑到**（两级都覆盖），
+     ⚠ **别在这里写下具体长度数字**（2026-09-25 用户报）：原写"组合长度上限恰好是 20 字"，
+     A 方案补一档之后最长组合已经是 17 字（「短时强降水，基本挡不住，尽量别出门」），
+     注释当场过期。这类"当前文案表的实测值"一律交给测试去算：
+     `scenario-uncertainty.js` 有一条「最大组合长度 ≤ FEEL_LINE_MAX_CHARS」的断言，
+     文案表变长时它会红，不需要注释来记账。
+     所以下面这段在当前两张表下永不触发，是防御性代码 —— 但**必须留着**：
+     日后谁把某档 feel/wetRaw 改长、或新增一档，这里就是唯一那道闸。
+     同一套件用注入式超长档把这条分支**强制跑到**（两级都覆盖），
      所以它不是"永远不被执行的死代码"。 */
   if (strict.length > FEEL_LINE_MAX_CHARS) {
     const clipped = clipSentence(strict, FEEL_LINE_MAX_CHARS);
@@ -3989,7 +4016,9 @@ function renderKpis(ctx) {
 
   /* 集合成员整体缺失时，凡是从成员算出来的数字都不要假装是 0，统一显示「—」 */
   const ensUsable = wet48.usable > 0;
-  const probOk    = ensUsable && rainProb48 !== null;
+  /* ③（2026-09-25 用户报）：这里原来还有 `const probOk = ensUsable && rainProb48 !== null;`
+     —— 它曾是"传给 coreCards 的一大包"之一，2026-09-24 把 coreCards 的签名收窄成
+     (ctx, comfort) 之后没人再用，成了死变量（4076 的注释一直在数落它，代码里却留着）。已删。 */
 
   /* 四项不确定性（48h 口径）+ 顶部综合建议：两者共用同一份计算结果 */
   const unc = ctx.model.unc;   // C1：只读缓存（primeModelCache 里算一次）
@@ -4087,7 +4116,7 @@ function renderKpis(ctx) {
 
 
 /* =======================================================================
-   十之一、L1：固定 3 张核心卡（2026-09-24 分层重组）
+   十之一、L1：固定 CORE_CARD_COUNT 张核心卡（2026-09-24 分层重组）
    -----------------------------------------------------------------------
    分层：L0 建议卡（动作 + 体感 + 依据）→ **L1 三张卡（本段）** → L2 折叠区（四组问句）。
    阶段一第一屏是"核心数字 3 张 + 不确定性 4 张 + 环境 3 张"共 10 张，卡片一多，
@@ -4337,12 +4366,17 @@ function renderDetail(ctx, unc, comfort, b) {
      2026-09-24 分层重组：L1 卡①只留时刻，毫米数全部降级到这里 + 卡底依据小字。
      标题纪律：不出现"最坏/极端/上限"这类会被读成严重程度判断的词 ——
      集合分位数给的是"偏多情形"，不是真实世界的极限值。 */
+  /* ①（2026-09-25 用户报）24h 累计卡的 note 曾在 p10_24 / p90_24 缺失时留下断尾
+     （「…　·　80% 成员落在 」）。`accumRangeText` 的契约是"任一端为 null 就返回空串"，
+     所以必须先算、再条件拼接 —— 不能把它的返回值直接接在半个句子上。
+     （rainGrade24h 的 null 兜底只管住了等级那半句，管不住这一半。） */
+  const rangeTxt24 = accumRangeText(b.p10_24, b.p90_24);
   const longCards = [
     { label: '未来 24 小时累计（集合中位数）',
       value: (b.ensUsable && b.p50_24 !== null) ? fmtAccum(b.p50_24) : '—', unit: (b.ensUsable && b.p50_24 !== null) ? 'mm' : '',
       note: b.ensUsable
-        ? `${rainGrade24h(b.p50_24).name}（GB/T 28592-2012）　·　80% 成员落在 ` +
-          accumRangeText(b.p10_24, b.p90_24)
+        ? `${rainGrade24h(b.p50_24).name}（GB/T 28592-2012）` +
+          (rangeTxt24 ? `　·　80% 成员落在 ${rangeTxt24}` : '')
         : '集合成员数据不可用',
       cls: b.ensUsable ? rainGrade24h(b.p50_24).cls : 'c-muted' },
 
@@ -4612,9 +4646,13 @@ function ensureAdviceCard() {
   feel.id = 'adviceFeel';
   feel.className = 'adv-feel';
 
-  /* 原来还有一行 adv-foot（挂统一免责声明）。第 1 屏收口后免责声明只剩
-     （当时免责声明挂在页脚 + 折叠区顶部两处）这里整行撤掉 —— 建议卡下面只留「依据」一行小字，
-     否则第一屏又是"一句话 + 两行小字"。 */
+  /* 原来还有一行 adv-foot（挂统一免责声明）。第 1 屏收口时整行撤掉 —— 建议卡下面
+     只留「依据」一行小字，否则第一屏又是"一句话 + 两行小字"。
+     （2026-09-25 校正：这句注释原来断在半截，"免责声明只剩"后面丢了宾语；
+     同一批更早的几个挂点（评分卡那处、体感卡页脚、提示条里那个）也都删了。
+     现状是**全站唯一一处：页脚** —— 见 DISCLAIMER_NOTE 与 ensureFootDisclaimer 的注释。
+     ⚠ 这里**不写**那几个旧挂点的原样类名：scenario-stage3.js 有源码哨兵在扫它们，
+       注释里写出来会误报 —— 本项目已第四次踩这个坑。） */
   card.appendChild(main);
   card.appendChild(feel);
   card.appendChild(why);
@@ -5400,14 +5438,14 @@ function renderModelChart(ctx) {
             const arr = modelSeries[m].precipitation;
             return arr ? numOrNull(arr[i]) : null;
           }).filter(v => v !== null);
-          if (!vals.length) return ['这个小时三个模型都没有有效数据'];
+          if (!vals.length) return [`这个小时 ${models.length} 个模型都没有有效数据`];
           const mx   = Math.max.apply(null, vals);
           const mn   = Math.min.apply(null, vals);
           const gap  = mx - mn;
           const top  = models[vals.indexOf(mx)];
           const topN = MODEL_META[top] ? MODEL_META[top].name : top;
           const lines = [
-            `三模型极差：${fmt(gap, 2)} mm　最大 ${topN} ${fmt(mx, 2)} mm`
+            `模型极差：${fmt(gap, 2)} mm　最大 ${topN} ${fmt(mx, 2)} mm`
           ];
           if (mn > 0 && mx / mn > DIVERGE.STRONG_RATIO) lines.push('此时刻模型分歧较大');
           else if (gap < DIVERGE.AGREE_GAP_MM)        lines.push('此时刻模型基本一致');
@@ -5685,6 +5723,11 @@ function rainPeriods(series, start, count, threshold = HOUR_RAIN_MM) {
   let cur = null;
   for (let i = start; i < start + count && i < arr.length; i++) {
     const v = round2(arr[i]);
+    /* ⑤（2026-09-25 用户报）：round2 可能返回 null（它体内是 `n === null ? null : …`），
+       而 `null > 正数` 恰好是 false —— 结果碰巧对，但那是巧合不是契约。
+       兄弟函数 heavyRuns 早就写成显式判断，这里补齐，两处口径一致。
+       行为与原来完全相同：缺数据仍然打断连续段。 */
+    if (v === null) { if (cur) { out.push(cur); cur = null; } continue; }
     if (v > threshold + 1e-9) {
       if (!cur) cur = { i, j: i, total: 0, peak: 0 };
       cur.j = i; cur.total += v; if (v > cur.peak) cur.peak = v;
@@ -5695,7 +5738,8 @@ function rainPeriods(series, start, count, threshold = HOUR_RAIN_MM) {
 }
 
 function renderConclusion(ctx) {
-  const { fTime, fStart, fHours, models, modelSeries, ens, eStart, stats } = ctx;
+  /* ③（2026-09-25 用户报）：解构里的 ens 已删 —— renderConclusion 全函数体内从未用过它。 */
+  const { fTime, fStart, fHours, models, modelSeries, eStart, stats } = ctx;
 
   /* 24 小时窗口：接口按 forecast_days=3 返回，从"当前小时"起算若不足 24 小时则按实际可用长度 */
   const WIN = Math.max(0, Math.min(24, fHours));
@@ -5732,7 +5776,7 @@ function renderConclusion(ctx) {
     const later = rp.laterFirst;
     periodSub = later
       ? `更晚的 ${rangeText(fTime[later.i], plusOneHour(fTime[later.j]))} 可能有零星小雨`
-      : '24 小时内三个模型都没预报出成片降雨';
+      : `24 小时内 ${models.length} 个模型都没预报出成片降雨`;
   }
 
   /* ---------- 带伞建议（动作与把握都来自 computeDecision，与第1层建议卡同源） ---------- */
@@ -5802,7 +5846,7 @@ function renderConclusion(ctx) {
   if (valid24.length < 2) {
     /* ③：可用模型不足 2 个 → 如实说"没法比"，绝不凭空报分歧 */
     agreeBox.innerHTML =
-      '<div class="alert"><span>·</span><span>' +
+      '<div class="alert info"><span>·</span><span>' +
       `只有 ${valid24.length} 个模型给出了 24 小时降水数据，无法比较模型一致性。` +
       '</span></div>';
   } else if (ratio > DIVERGE.STRONG_RATIO && mx >= DIVERGE.MIN_MM) {
@@ -5810,20 +5854,20 @@ function renderConclusion(ctx) {
     agreeBox.innerHTML =
       '<div class="alert warn"><span>⚠️</span><span>' +
       '<b>模式分歧较大，这场雨的把握不高。</b><br>' +
-      `三个模型给出的 24 小时雨量最多相差 ${ratioText}（${detail} 毫米），` +
+      `${valid24.length} 个模型给出的 24 小时雨量最多相差 ${ratioText}（${detail} 毫米），` +
       '建议临近时再看一次最新预报。' +
       '</span></div>';
   } else if (ratio > DIVERGE.MILD_RATIO && mx >= DIVERGE.MIN_MM) {
     // 没到 3 倍不至于否定结论，但 3 倍左右时说"比较接近"也不诚实，单独给一档
     agreeBox.innerHTML =
       '<div class="alert ok"><span>·</span><span>' +
-      `三个模型的 24 小时雨量有一定差距（${detail} 毫米，相差 ${ratioText}），` +
+      `${valid24.length} 个模型的 24 小时雨量有一定差距（${detail} 毫米，相差 ${ratioText}），` +
       '但没到 3 倍的分歧阈值，雨量级的判断仍可参考。' +
       '</span></div>';
   } else {
     agreeBox.innerHTML =
       '<div class="alert ok"><span>✓</span><span>' +
-      `三个模型的 24 小时雨量比较接近（${detail} 毫米），这场雨的把握较高。` +
+      `${valid24.length} 个模型的 24 小时雨量比较接近（${detail} 毫米），这场雨的把握较高。` +
       '</span></div>';
   }
 
@@ -5842,8 +5886,10 @@ function renderConclusion(ctx) {
   const advice = [];
 
   // 集合口径的长时效参考：中位数 = 最可能情形，90% 分位 = 偏多情形
+  /* ③（2026-09-25 用户报）：这里原来还有 `const p90_all = sumSeg(stats.p90.slice(eStart));`
+     —— 2026-09-24 分层重组把"7 天偏多情形"那条建议搬去 L2（走 b.p90_all）之后，
+     本函数再没读过它，成了死变量；连带的 P90_TIERS.RATIO / MIN_MM 也失去唯一引用点。已删。 */
   const total7  = sumSeg(stats.p50.slice(eStart));
-  const p90_all = sumSeg(stats.p90.slice(eStart));
   const p90_48  = sumSeg(stats.p90.slice(eStart, eStart + 48));
 
   /* 气温（用来判断下的是雨还是雪）：C2（2026-09-24）起读缓存里的 comfort，
@@ -5853,15 +5899,18 @@ function renderConclusion(ctx) {
   const minTemp = ctx.model.comfort.tempMin;
 
   // 1) 偏多情形提醒（用 90% 分位说话；这是唯一会改变"要不要多带一件雨具/改期"的一条）
-  if (p90_48 >= P90_TIERS.HEAVY_MM) {
+  /* ⑤（2026-09-25 用户报）：p90_48 / total7 都来自 sumSeg，**可能为 null**。
+     原来只靠 `null >= 25 === false` 这个巧合不触发 —— 巧合不是契约。
+     两处都补显式判空（与 heavyRuns 的写法对齐）。 */
+  if (p90_48 !== null && p90_48 >= P90_TIERS.HEAVY_MM) {
     advice.push({ text: `偏多情形下未来 48 小时雨量可达 ${fmtQuant(p90_48)} 毫米，需留意城市内涝与低洼路段积水。`, cls: 'danger' });
-  } else if (p90_48 >= P90_TIERS.MODERATE_MM) {
+  } else if (p90_48 !== null && p90_48 >= P90_TIERS.MODERATE_MM) {
     advice.push({ text: `偏多情形下未来 48 小时雨量约 ${fmtQuant(p90_48)} 毫米，出行请预留更多时间。`, cls: 'warn' });
   }
 
   // 2) 雨雪判断：温度低 + 有降水 → 可能雨夹雪或雪
   //    （措辞里不出现"伞"字：要不要带伞是 L0 动作句的职责，两句不许互相矛盾）
-  if (minTemp !== null && minTemp < SNOW.TEMP_C && total7 >= SNOW.RAIN7_MM) {
+  if (minTemp !== null && minTemp < SNOW.TEMP_C && total7 !== null && total7 >= SNOW.RAIN7_MM) {
     advice.push({ text: `降水时段最低气温约 ${fmt(minTemp)}℃，高海拔或夜间可能出现雨夹雪乃至降雪，注意保暖与道路结冰。`, cls: 'warn' });
   }
 
