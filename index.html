@@ -305,6 +305,30 @@
   .search-item .region { overflow-wrap: anywhere; }
   .search-item .coord { flex: 0 0 auto; }
 
+  /* ---------- 级别标签（2026-09-25 用户要求）----------
+     作为 `.place` 的**子元素**渲染在地名右侧。
+     ⚠ 不许把 `.place` 改成 flex —— 上面那条 `overflow-wrap: anywhere` 是专门为超长地名调的，
+       改成 flex 会让 min-content 宽度重新生效，窄屏又会被顶出卡片（见上面那段注释）。
+     `.tag` 本身是 inline-block（不可拆的整体），这里再加 nowrap 挡住标签内部断行：
+     超长地名该在标签**之前**断，标签必须整块跟着走。 */
+  .search-item .place .tag { font-weight: 400; margin-left: 6px; white-space: nowrap; }
+
+  /* 常驻说明小字：搜省 / 州名时结果可能只有 1 条（甚至 0 条），
+     那种情况下"重名提示"不会出现 —— 这行小字是唯一兜底。 */
+  .geo-note { margin-top: 8px; font-size: 11.5px; color: var(--muted); }
+
+  /* 重名提示：同名的多个居民点分处不同省份时，先讲清"这里没有你要的那个省" */
+  .dup-note {
+    margin-top: 4px;
+    padding: 9px 12px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--warn);
+    background: rgba(251, 191, 36, .08);
+    border: 1px solid rgba(251, 191, 36, .3);
+    border-radius: var(--radius-sm);
+  }
+
   /* ==================== 状态提示条 ==================== */
   .status {
     margin-top: 12px;
@@ -844,6 +868,7 @@
       </div>
       <button id="searchBtn" class="btn-search" type="button" data-page-node-id="b2BUoXvrdOGAFmysrMEJwu">搜索</button>
     </div>
+    <div class="geo-note" id="geoNote">只收录城市与村庄，省 / 州名搜不到</div>
     <div id="searchResults" class="search-results" data-page-node-id="f9SORKNQ3OHh86bEe6BHxU"></div>
   </section>
 
@@ -974,6 +999,39 @@ const GEO = {
   /* 地名搜索一次要几条候选。原先这个 5 只写在请求参数里、
      注释里另写一个"5"—— 两处会各自漂移。现在只认这一个常量。 */
   CAND_COUNT:        5
+};
+
+/* -------------------- 【自定义】地名级别标签（2026-09-25 用户要求）--------------------
+   接口回来的是 GeoNames 的 `feature_code`（PPLA / PPLC …），人看不出级别。
+   这张表把它翻成中文标签，渲染在候选地名右侧（复用 `.tag` 样式）。
+
+   ⚠ 用户定的硬约束：**"没标签"不能承载任何含义** ——
+     所以 GeoNames 的 P 类（居民点各档）+ `PCLS`（半独立政体）**全部列出**；
+     只有真正没收录的代码才不输出标签（不写"未知"）。
+   ⚠ 大小不能写反：`PPLL`（populated locality）比 `PPL` 小；
+     `PPL` 是"村和镇共用的兜底类别"，所以中文用「村镇」而不是「城镇」。
+   ⚠ 实测（2026-09-25，20 个查询 / 65 条结果）真正出现过的只有 6 个：
+     `PPL`(31) / `PPLA`(4) / `PPLA2`(4) / `PPLC`(3) / `PPLA3`(2) / `PCLS`(1)。
+     其余是 GeoNames 里可能存在、本轮未见的，一并列出以免落进"没标签"。 */
+const FEATURE_LEVELS = {
+  PPLC:  '首都',        // capital of a political entity
+  PCLS:  '自治政区',    // semi-independent political entity（港澳 / 格陵兰 / 波多黎各这类，不是居民点。
+                        // ⚠ 别写「特别行政区」—— 那对格陵兰 / 波多黎各是假的）
+  PPLG:  '政区驻地',    // seat of government of a political entity
+  PPLA:  '省会',        // seat of a first-order administrative division（省 / 州府）
+  PPLA2: '地区中心',    // seat of a second-order administrative division（地级市驻地）
+  PPLA3: '县驻地',      // seat of a third-order administrative division
+  PPLA4: '乡镇驻地',    // seat of a fourth-order administrative division
+  PPL:   '村镇',        // populated place —— 村与镇共用的兜底类别
+  PPLL:  '村',          // populated locality —— 比 PPL 小
+  PPLX:  '城区',        // section of populated place
+  PPLF:  '农场村',      // farm village
+  PPLR:  '宗教聚落',    // religious populated place
+  PPLS:  '聚落群',      // populated places
+  PPLH:  '历史地名',    // historical populated place
+  PPLCH: '旧都',        // historical capital of a political entity
+  PPLQ:  '已废弃',      // abandoned populated place
+  PPLW:  '已毁'         // destroyed populated place
 };
 
 /* -------------------- 【自定义】特殊点地标表（T3 2026-09-25 用户要求）--------------------
@@ -1355,7 +1413,10 @@ const STRONG_HOUR_SHOW_MM = 0.5; // 最大小时雨强 ≥ 0.5 → 结论句才�
 const DIVERGE = {
   STRONG_RATIO: 3,    // max/min > 3     → 「分歧较大，把握不高」
   MILD_RATIO:   1.8,  // max/min > 1.8   → 「有一定差距」（没到 3 倍）
-  MIN_MM:       0.1,  // max ≥ 0.1mm 才报分歧（雨量太小，几倍差距也无意义）
+  MIN_MM:       0.1,  // **有有效降雨的门槛**：低于它一律走"没雨可比较"那一支
+                      // （旧注释写的是"max ≥ 0.1mm 才报分歧（雨量太小，几倍差距也无意义）"，
+                      //  那把它说成了"分歧判据的附属条件"，于是"三个模型都没雨"漏进了 else 分支 ——
+                      //  2026-09-25 用户实测报出：全 0 时结论卡说"这场雨的把握较高"。）
   AGREE_GAP_MM: 0.1   // 图表 tooltip：三模型极差 < 0.1mm → 「基本一致」
 };
 
@@ -6223,11 +6284,17 @@ function renderConclusion(ctx) {
   const mx = valid24.length ? Math.max.apply(null, valid24) : null;
   const mn = valid24.length ? Math.min.apply(null, valid24) : null;
   // 最小值可能正好是 0（某个模型认为完全不下雨），这时比值趋于无穷，用 Infinity 表示
-  const ratio  = (mn !== null && mn > 0) ? mx / mn : (mx !== null && mx > 0 ? Infinity : 1);
+  /* ⚠ 2026-09-25 用户报（"两条不同的路走到同一个值"）：这里的兜底原来写 `1` ——
+     于是"三个模型都没报雨"（mx === 0，**比值这个概念根本不存在**）和"三个模型报了差不多的雨量"
+     变成**同一个数字**，共用同一个 else 分支，结论卡于是在无雨时说出「这场雨的把握较高」。
+     兜底改为 null：没法算就老实说没法算，别拿 1 冒充。 */
+  const ratio  = (mn !== null && mn > 0) ? mx / mn : (mx !== null && mx > 0 ? Infinity : null);
   const detail = models.map((m, i) =>
     `${modelName(m)} ${fmtAccum(perModel24[i])}`).join(' / ');
 
-  const ratioText = Number.isFinite(ratio) ? fmt(ratio) + ' 倍' : '极大';
+  /* ratio === null 会走"没雨可比较"那一支；这里显式挡一下，不让它落进「极大」——
+     `Number.isFinite(null)` 是 **false**，不挡就会渲染出"相差 极大"这种假话。 */
+  const ratioText = ratio === null ? '' : (Number.isFinite(ratio) ? fmt(ratio) + ' 倍' : '极大');
 
   if (valid24.length < 2) {
     /* ③：可用模型不足 2 个 → 如实说"没法比"，绝不凭空报分歧 */
@@ -6235,15 +6302,26 @@ function renderConclusion(ctx) {
       '<div class="alert info"><span>·</span><span>' +
       `只有 ${valid24.length} 个模型给出了 24 小时降水数据，无法比较模型一致性。` +
       '</span></div>';
-  } else if (ratio > DIVERGE.STRONG_RATIO && mx >= DIVERGE.MIN_MM) {
-    // 补一个 mx 下限：雨量小到 0.1mm 以下时，几倍差距也没有实际意义，不值得报警
+  } else if (mx !== null && mx < DIVERGE.MIN_MM) {
+    /* 🆕 2026-09-25（用户实测报的假话）：**"有雨可比较"是一道独立门槛**，
+       必须在分歧判断**之前**先过一遍 —— 三个模型都低于 MIN_MM（含全 0、含"都报 0.05mm 毛毛雨"）时，
+       "比值"这个概念根本不存在，此时说「比较接近…这场雨的把握较高」就是撒谎
+       （L2「降雨是否一致」同一时刻说的是"一致，都认为不下雨"，两句会互相打脸）。
+       ⚠ 判 `mx` 而**不是**判 `ratio === null` —— 这样才能一并接住"都报 0.05mm"那种
+         （mx > 0、ratio 会算成一个看着正常的数字）。 */
+    agreeBox.innerHTML =
+      '<div class="alert info"><span>·</span><span>' +
+      `${valid24.length} 个模型都没有预报出有效降雨（都低于 ${DIVERGE.MIN_MM} 毫米），没有可比较的雨量。` +
+      '</span></div>';
+  } else if (ratio > DIVERGE.STRONG_RATIO) {
+    /* mx 下限已由上一支统一承担，这里不再重复写 `&& mx >= DIVERGE.MIN_MM` —— 同一条件不写两遍 */
     agreeBox.innerHTML =
       '<div class="alert warn"><span>⚠️</span><span>' +
       '<b>模式分歧较大，这场雨的把握不高。</b><br>' +
       `${valid24.length} 个模型给出的 24 小时雨量最多相差 ${ratioText}（${detail} 毫米），` +
       '建议临近时再看一次最新预报。' +
       '</span></div>';
-  } else if (ratio > DIVERGE.MILD_RATIO && mx >= DIVERGE.MIN_MM) {
+  } else if (ratio > DIVERGE.MILD_RATIO) {
     // 没到 3 倍不至于否定结论，但 3 倍左右时说"比较接近"也不诚实，单独给一档
     agreeBox.innerHTML =
       '<div class="alert ok"><span>·</span><span>' +
@@ -6315,6 +6393,66 @@ function renderConclusion(ctx) {
    十六、地名搜索（地理编码接口）
    ======================================================================= */
 
+/* ---------- 地名级别 / 人口 / 重名：三个纯函数（2026-09-25）----------
+   都做成"只吃参数、不碰 DOM"的纯函数：接口响应形态千变万化，
+   靠"跑一次真接口再看页面"是测不稳的，喂构造输入才能把边界钉死。 */
+
+/** feature_code → 中文级别标签；表里没有的返回**空串**（调用方据此不输出标签）
+    ⚠ 空串的含义是"这张表确实没收录这个代码"，**不是**"这个地点没有级别" ——
+      所以 FEATURE_LEVELS 要把 GeoNames 的 P 类列全（见常量表上的注释）。 */
+function featureLevel(code) {
+  return FEATURE_LEVELS[String(code || '').toUpperCase()] || '';
+}
+
+/** 数值 → 最多一位小数的字符串，**不补零**
+    用户 2026-09-25 定的全站规则：「保留一位小数」= **最多一位，不补零**
+    （300 → '300'、1.0 → '1'、1.25 → '1.3'）。
+    ⚠ 与 `toFixed(1)` 的唯一区别就是"不补零" —— 凡是要"一位小数"的地方都该走这里。 */
+function oneDecimal(x) {
+  const r = Math.round(x * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
+/** 人口 → 人话（2026-09-25 用户要求）
+    ⚠ 修掉的 bug：原实现 `Math.round(pop / 10000) + ' 万'` 会把 993 / 2870 / 1524
+      全渲染成「人口约 0 万」（`Math.round(0.0993) === 0`）。
+    ⚠ 万位 / 亿位走 `oneDecimal`（最多一位、**不补零**）：300 万写「约 300 万」而不是
+      「约 300.0 万」；10001 写「约 1 万」、12345 写「约 1.2 万」—— 两者仍然分得开。
+    空 / 0 / 非数字 → 空串（调用方不输出这一段，与"缺失显示 —"同一约定）。 */
+function popText(pop) {
+  const n = numOrNull(pop);
+  if (n === null || n <= 0) return '';
+  if (n < 1000)      return '不足 1000 人';
+  if (n < 10000)     return '约 ' + Math.round(n / 1000) + ' 千';
+  if (n < 100000000) return '约 ' + oneDecimal(n / 10000) + ' 万';
+  return '约 ' + oneDecimal(n / 100000000) + ' 亿';
+}
+
+/** 重名提示（2026-09-25 用户要求）—— 命中才返回 HTML，否则空串
+    三个条件**全满足**才触发：
+      ① 所有结果**同名且严格全等**（`every`，不做模糊匹配 —— 搜 `texas` 返回的
+         `Colfax` / `East Texas` 名字并不全等，所以不会触发）；
+      ② `admin1` **去重后 ≥ 2 个**（提示里列举去重后的省份）；
+      ③ 降噪条件：列表里没有任何一条是**建制驻地**（`PPLC` 或 `PPLA*`）时，才提示重名。
+         为什么用它：这个条件要回答的不是"级别够不够高"，而是
+         **"用户想要的那个东西，在不在这个列表里"** ——
+           搜「义乌」→ `PPLA3`（县城），那就是他要的 → 不提示
+           搜「某某镇」→ `PPLA4`，那也是他要的 → 不提示
+           搜「山东」→ 全是 `PPL` 村庄，没有一个是建制驻地 → 提示
+         收窄到 `PPLC`/`PPLA`/`PPLA2` 会让"搜义乌"也弹提示，那就成了噪音。
+    ⚠ 判据取 `PPLA*` 通配（含 PPLA3 县驻地 / PPLA4 乡镇驻地）+ `PPLC`，**故意不收窄**。 */
+function dupNoticeHtml(list) {
+  if (!list || list.length < 2) return '';
+  const first = list[0].name;
+  if (!first || !list.every(r => r.name === first)) return '';
+  if (list.some(r => r.feature_code === 'PPLC' || /^PPLA\d*$/.test(String(r.feature_code || '')))) return '';
+  const provs = [...new Set(list.map(r => r.admin1).filter(Boolean))];
+  if (provs.length < 2) return '';
+  return '<div class="dup-note">「' + escapeHtml(first) + '」是常见重名，以上 ' + list.length +
+    ' 条分别在 ' + provs.map(v => escapeHtml(v)).join('、') +
+    '。本服务只收录城市与村庄，不收录省 / 州这类行政区，可以搜省内的城市。</div>';
+}
+
 async function doSearch() {
   const keyword = (keywordInput.value || '').trim();
   if (!keyword) {
@@ -6339,16 +6477,20 @@ async function doSearch() {
     // 注意：这里的每个字段都来自 geocoding 接口（第三方），进 innerHTML 前一律过 escapeHtml()。
     // 顺序有讲究：**先 filter(Boolean) 再转义** —— escapeHtml(undefined) 返回的是字符串
     // "undefined"（不是空串），反过来的话缺 admin1 的地点会显示成「undefined · 中国」。
-    searchResults.innerHTML = list.map((r, i) => {
+    searchResults.innerHTML = dupNoticeHtml(list) + list.map((r, i) => {
       const region = [r.admin1, r.admin2, r.country]
         .filter(Boolean).map(v => escapeHtml(v)).join(' · ');
-      const place  = escapeHtml(r.name || '未命名');
-      const pop    = r.population ? ' ｜ 人口约 ' + Math.round(r.population / 10000) + ' 万' : '';
+      /* 级别标签作为 `.place` 的**子元素**（不改 flex，原因见 CSS 注释）。
+         表里没收录的代码 → 空串 → 不输出标签（不是写"未知"）。 */
+      const lv     = featureLevel(r.feature_code);
+      const tag    = lv ? '<span class="tag">' + escapeHtml(lv) + '</span>' : '';
+      const place  = escapeHtml(r.name || '未命名') + tag;
+      const pop    = popText(r.population);
       return `
         <div class="search-item" data-idx="${i}">
           <div>
             <div class="place">${place}</div>
-            <div class="region">${region || '—'}${pop}</div>
+            <div class="region">${region || '—'}${pop ? ' ｜ 人口' + pop : ''}</div>
           </div>
           <div class="coord">${fmtCoord(r.latitude)}, ${fmtCoord(r.longitude)}</div>
         </div>`;
