@@ -1162,7 +1162,14 @@ const ALERT_RULES = [
 
   { id: 'gust', prio: 2, cls: 'a-warn', at: '阵风 > 35km/h',
     when: c => numOrNull(c.gustPeak) !== null && c.gustPeak > ALERT_THRESHOLD.GUST_KMH,
-    text: c => `阵风 ${fmtWind(c.gustPeak)} km/h，伞可能被吹翻` },
+    /* 2026-09-25 用户实测报：第一屏会同时出现「建议带伞」与「伞可能被吹翻」，
+       两句都真，却把调和推给读者 —— 提示条本该**补充** L0，不该反驳 L0。
+       页面对这种组合是算得出答案的（雨需要遮 + 伞撑不住 → 带雨衣），所以按 decision.action 分岔。
+       第二个参数由 computeAlerts 传入。
+       ⚠ 不传 decision 时（单测直接调 computeAlerts）必须**逐字保持**原措辞，
+         现有 S14 断言硬编码了那句文案，靠这一点保住。 */
+    text: (c, d) => `阵风 ${fmtWind(c.gustPeak)} km/h，` +
+      (d && d.action === 'umbrella' ? '伞可能撑不住，考虑雨衣' : '伞可能被吹翻') },
 
   { id: 'vis', prio: 3, cls: 'a-warn', at: '能见度 < 2km',
     when: c => numOrNull(c.visMin) !== null && c.visMin < ALERT_THRESHOLD.VIS_KM * 1000,
@@ -2708,7 +2715,19 @@ async function runQuery(opts) {
         'warn'
       );
     } else {
-      setStatus(`数据就绪 · ${okCount}/${settled.length} 个接口可用`, 'ok');
+      /* ⑤（2026-09-25 用户实测报）：成功态原来写「数据就绪 · 2/2 个接口可用」，
+         而页脚同时写着「数据时间：19:24:22（刚刚）」—— 两个元素在说同一件事。
+         压成一句：**接口状态 + 取回时刻**（"数据就绪"这个空词去掉）。
+         ⚠ 页脚那句**保留不动**：它承担缓存真实性（命中缓存时写
+           "9 分钟前，其中 k/2 个接口来自本地缓存"），是"页面不撒谎"的载体，
+           而且有 12 条断言守着 —— 它和这里的"这次查询结果如何"职责不同。
+         ⚠ 失败态（上面的 missing 分支）**一个字不动**：缺失原因 + 重试入口必须保留。 */
+      const stamp = Math.min.apply(null,
+        settled.filter(s => s.ok && s.dataAt).map(s => s.dataAt));
+      const hhmmAt = Number.isFinite(stamp)
+        ? new Date(stamp).toLocaleString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })
+        : '';
+      setStatus(`${okCount}/${settled.length} 接口` + (hhmmAt ? ` · ${hhmmAt} 取回` : ''), 'ok');
     }
 
     // 数据时间取两个接口里"最旧"的取回时刻：命中缓存时写「9 分钟前 · 来自本地缓存」，
@@ -3547,7 +3566,7 @@ function phenomenonOfMaxPrecip(ctx) {
  * 多出来的条数原样带回（more），由渲染层压成一行"还有 N 项"的小尾巴 —— 不静默丢弃。
  * 字段缺失的规则在 when() 里就返回 false，等于这条不存在（见 ALERT_RULES 表头说明）。
  */
-function computeAlerts(comfort, prefs) {
+function computeAlerts(comfort, prefs, decision) {
   const c = comfort || {};
   const p = prefs || {};
   const rules = ALERT_RULES.slice();
@@ -3562,10 +3581,12 @@ function computeAlerts(comfort, prefs) {
     rules.push({
       id: 'bike-gust', prio: 2, cls: 'a-warn', at: '阵风 > 30km/h（会骑车）',
       when: cc => numOrNull(cc.gustPeak) !== null && cc.gustPeak > PREF_BIKE_GUST_KMH,
-      text: cc => {
+      text: (cc, d) => {
         const g = fmtWind(cc.gustPeak);
         const blow = numOrNull(cc.gustPeak) !== null && cc.gustPeak > ALERT_THRESHOLD.GUST_KMH
-          ? '，伞可能被吹翻' : '';
+          /* 与通用 gust 条同一处分岔（同一矛盾的另一个出口）：带伞时说"考虑雨衣"。 */
+          ? (d && d.action === 'umbrella' ? '，伞可能撑不住，考虑雨衣' : '，伞可能被吹翻')
+          : '';
         return `阵风 ${g} km/h，骑车 / 电动车注意侧风${blow}`;
       }
     });
@@ -3575,7 +3596,7 @@ function computeAlerts(comfort, prefs) {
     .filter(r => { try { return !!r.when(c); } catch (e) { return false; } })
     .sort((a, b) => a.prio - b.prio);
   const items = hit.slice(0, ALERT_THRESHOLD.MAX)
-    .map(r => ({ id: r.id, at: r.at, cls: r.cls, text: r.text(c) }));
+    .map(r => ({ id: r.id, at: r.at, cls: r.cls, text: r.text(c, decision) }));
   return { items, more: Math.max(0, hit.length - items.length), total: hit.length };
 }
 
@@ -4040,7 +4061,7 @@ function renderKpis(ctx) {
   renderAdvice(decision);     // ← 第 1 层：一句话综合建议 + 淋湿风险 + 免责
 
   /* 条件提示条（L0 与 L1 之间）：只有满足条件才出现，一条都不满足时完全不占空间。 */
-  renderAlerts(comfort, prefs);
+  renderAlerts(comfort, prefs, ctx.model.decision);
 
   /* 阶段三·综合评分 + 我的偏好：都在第 3 层折叠区（顶部），不占第一屏。 */
   const scores = computeScores(comfort, prefs);
@@ -4170,7 +4191,11 @@ function coreCards(ctx, comfort) {
       hint  = rp.periods.length > 1
         ? `24 小时里有 ${rp.periods.length} 段雨，这是最大的一段`
         : '这一段时间雨最集中';
-      foot.push(`这一段累计 ${fmtAccum(rp.main.total)} 毫米　·　最强 1 小时 ` +
+      /* ④（2026-09-25 用户实测报）：卡② 的 hint 也有「最强一小时出现在 02:00」——
+         那是**整个 24h 窗口**的峰值，而这里报的是**主降雨时段内部**的峰值，
+         两者可能不是同一个小时（注释在第 3359 行早就写明了，但页面上措辞看不出区别）。
+         措辞几乎一样会让人以为是同一件事，所以点明"这段里"。 */
+      foot.push(`这一段累计 ${fmtAccum(rp.main.total)} 毫米　·　这段里最强 1 小时 ` +
         `${fmt(rp.main.peak, PRECISION.HOUR_MM)} 毫米/小时`);
       cls = 'c-accent2';
     } else {
@@ -4192,7 +4217,20 @@ function coreCards(ctx, comfort) {
     const effOk = comfort.effRainPeak !== null && comfort.effRainPeakIndex !== null;
     const rawOk = comfort.hourPeak !== null && comfort.hourPeakIndex !== null;
     const foot  = [];
-    if (rawOk) foot.push(`原始雨强峰值 ${fmt(comfort.hourPeak, PRECISION.HOUR_MM)} 毫米/小时（未考虑风）`);
+    /* 三（2026-09-25 用户实测报）：主值走**有效雨强**（含风雨耦合），
+       foot 原来只给**原始雨强峰值** —— 两个数并排放着却没有换算关系，
+       读者按 RAIN_FEEL_LEVELS 查表会以为算错了：0.4 明明是"毛毛细雨"，
+       主值却说"很小的雨"（因为 0.4 × 风力系数 ≈ 0.6，落在 max:1 那一档）。
+       同一张卡里的两个数必须能互相印证 —— 所以两者一起露出来，并标清哪个是哪个。
+       降级：只有原始 / 只有有效时，各自如实报一个，不硬凑。 */
+    if (rawOk && effOk) {
+      foot.push(`有效雨强峰值 ${fmt(comfort.effRainPeak, PRECISION.HOUR_MM)} 毫米/小时（含风）` +
+        `　·　原始 ${fmt(comfort.hourPeak, PRECISION.HOUR_MM)}（未考虑风）`);
+    } else if (rawOk) {
+      foot.push(`原始雨强峰值 ${fmt(comfort.hourPeak, PRECISION.HOUR_MM)} 毫米/小时（未考虑风）`);
+    } else if (effOk) {
+      foot.push(`有效雨强峰值 ${fmt(comfort.effRainPeak, PRECISION.HOUR_MM)} 毫米/小时（含风）`);
+    }
     cards.push({
       label: '下多猛',
       value: lv ? lv.name : '—',
@@ -4212,11 +4250,33 @@ function coreCards(ctx, comfort) {
   {
     const tOk = comfort.tempMin !== null && comfort.tempMax !== null;
     const fOk = comfort.feelsMin !== null && comfort.feelsMax !== null;
+    /* ⑥（2026-09-25 用户实测报）：这里原来挂「·　由 Open-Meteo 提供」——
+       与页脚的数据来源重复，而且 L1 三张卡里只有这一张挂来源说明。
+       换成真正有信息量的东西：**体感与气温的差**（风大 + 湿 → 体感明显偏低）。
+       差值不足 1℃ 时不写这句 —— "比气温低 0~0℃"是噪声，不是信息。 */
+    const feelsFoot = [];
+    if (fOk) {
+      const fTxt = `体感 ${fmtTemp(comfort.feelsMin)}℃ ~ ${fmtTemp(comfort.feelsMax)}℃`;
+      if (tOk) {
+        const dLo = comfort.tempMin - comfort.feelsMin;
+        const dHi = comfort.tempMax - comfort.feelsMax;
+        const a = Math.round(Math.abs(dLo)), b = Math.round(Math.abs(dHi));
+        if (a >= 1 || b >= 1) {
+          const word = (dLo > 0 || dHi > 0) ? '低' : '高';
+          const diff = (a === b) ? `${b}℃` : `${Math.min(a, b)}~${Math.max(a, b)}℃`;
+          feelsFoot.push(fTxt + `　·　比气温${word} ${diff}`);
+        } else {
+          feelsFoot.push(fTxt);
+        }
+      } else {
+        feelsFoot.push(fTxt);
+      }
+    }
     cards.push({
       label: '穿什么出门',
       value: tOk ? `${fmtTemp(comfort.tempMin)}℃ ~ ${fmtTemp(comfort.tempMax)}℃` : '—',
       hint: tOk ? tempOutfitText(comfort.tempMin, comfort.tempMax) : '气温数据不可用',
-      foot: fOk ? [`体感 ${fmtTemp(comfort.feelsMin)}℃ ~ ${fmtTemp(comfort.feelsMax)}℃　·　由 Open-Meteo 提供`] : [],
+      foot: feelsFoot,
       cls: (tOk || fOk) ? 'c-accent' : 'c-muted'
     });
   }
@@ -4800,11 +4860,11 @@ function expandInputFold() {
  *   一条都没有 → 清空并隐藏，不留空白、不写"无提示"之类的占位
  * 文案与 title 里的阈值说明都来自常量，没有第三方文本，所以直接拼进 HTML。
  */
-function renderAlerts(comfort, prefs) {
+function renderAlerts(comfort, prefs, decision) {
   const bar = ensureAlertBar();
   if (!bar) return;
 
-  const a = computeAlerts(comfort, prefs);
+  const a = computeAlerts(comfort, prefs, decision);
   if (!a.items.length) {
     bar.innerHTML = '';
     bar.style.display = 'none';
@@ -5669,9 +5729,23 @@ function spokenRange(nowTime, a, b) {
   const days = dayDiff(s, e);
   const span = days * 24 + e.h - s.h;               // 真实跨度（小时），含跨天
   const p1 = partOfDay(s.h), p2 = partOfDay(e.h);
-  let part;
-  if (days > 0 || span > 4) part = p1 + '到' + p2;  // 跨天 / 大跨度：两段都报出来
-  else part = partOfDay(s.h + span / 2);             // 否则取中点所在时段
+
+  /* 二（2026-09-25 用户实测报）：**跨天时一个日期词扛不下来**。
+     反例：「今天夜里到早上 21~05 点」里的 05 点其实是**明天**的，
+     读起来像"今天早上 5 点" —— 一个已经过去的时间（当时是 19:24）。
+     规格（日期词 + 时段词 + 钟点，三者齐全）原本只覆盖单日期情形，
+     而跨天那一天实际有**两个日期**，所以两个日期词都必须报出来。
+     退出条件：结束点超过"后天"时 dayWordOf 返回 null，退回精确格式
+     （与上面"超过今天/明天/后天一律退回"的约定一致）。 */
+  if (days > 0) {
+    const dw2 = dayWordOf(nowTime, b);
+    if (dw2 === null) return rangeText(a, b);
+    return `${dw}${p1} ${clockText(s.h, s.h)}到${dw2}${p2} ${clockText(e.h, e.h)}`;
+  }
+
+  /* 不跨天：大跨度时两个时段词都报，否则取中点所在时段。
+     这一支与改前**逐字一致**（改动前 `days > 0 || span > 4`，跨天已被上面接走）。 */
+  const part = span > 4 ? p1 + '到' + p2 : partOfDay(s.h + span / 2);
   return `${dw}${part} ${clockText(s.h, e.h)}`;
 }
 
