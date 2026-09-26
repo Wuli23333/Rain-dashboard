@@ -5,6 +5,127 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" data-page-node-id="wlkIDZQclhgI680PNq0luW" />
 <title>降水快报</title>
 
+<!-- ========== 版本：2026-09-26 · 批 E「风：一张表、一个量」（规格见 HANDOFF 8.9 / 8.14） ==========
+      背景（用户在同一页抓到三处互相矛盾的说法）：
+        L2 明细卡说「未来 24h 最大阵风 30 km/h → 和缓，对出行没有影响」，
+        综合评分说「风力影响 65 分」，结论说「挺难受，主要是风」。
+      诊断结论：**"风速 → 对人有啥影响"这件事在本页有五把尺子、三个数、两个窗口** ——
+        卡④ 报阵风、判 GUST_LEVELS（经验值，tip 手写）；
+        评分判**合成风力**（0.6×平均+0.4×阵风）走 `WIND_SCORE_STOPS`（0/10/20/30/40，
+        注释里**没有任何依据**）；副标题报阵风、判合成风力；
+        L2 风速卡又是另一个窗口（68/72h 对 24h）；提示条另有 35 km/h 门槛。
+      于是它们在数学上就不可能互相推出 —— 不是哪一处写错，是结构上缺一张唯一的表。
+
+      本批落点：**GB/T 28591—2012《风力等级》**（用户 2026-09-26 提供标准全文 PDF）——
+      ① 新表 `BEAUFORT_LEVELS`（1~9 级：级数 / 风名 / m/s 区间 / km/h 区间 / **陆地地面物征象**
+         / 分数带 `scoreLo~scoreHi`）。陆地征象**逐字抄自附录 A**（资料性附录），
+         所以来源标"附录 A 原文级"，不写"国家标准正文"（这一条是用户点名要求的区分）。
+      ② 卡面（L2 风力卡）主值 = 「N 级 名称（标准区间 km/h）」，副标题 = 该级陆地征象；
+         **阵风单独一张卡、只报数不配描述**。
+      ③ 评分那一维 `windScore(平均风峰值)`：锚点从风级表各档的 `scoreLo/scoreHi` **派生**
+         （`windScoreStopsOf`），不再是那张没有出处的 0/10/20/30/40。
+         校验锚点：12 km/h→20 分｜16→30｜20→40｜29（5 级起点）→60｜39（6 级）→80｜75→100。
+      ④ 副标题/结论的风措辞取同一档的 `land` —— **页面上不再有任何手写的风影响断言**。
+      ⑤ 量纲纪律（本批的核心）：蒲福风级按标准 3.1 条判的是**标准气象观测场 10 m 高度处的风速**
+         （即平均风）→ 卡面 / 评分 / 副标题 / 结论**一律读 `windAvgPeak`**；
+         阵风走它自己的 `GUST_LEVELS` 与提示条，**绝不拿阵风去配蒲福陆地征象**
+         （阵风 30 的等效平均风只有 3~4 级，配 5 级的"有叶的小树摇摆"就是新的错配）。
+      ⑥ 退役了两处**没有出处**的旧东西：`WIND_PEAK_TIERS`（39/25 两个裸门槛）与
+         `WIND_SCORE_STOPS`；并删掉 `GUST_LEVELS` 第一档那句手写的全称否定
+         「对出行没有影响」（它正是被同一页的分数反证的那句，与 geo-note 同类病）。
+      ⚠ 分数带的形状是**按标准边界标定**的作者规则（标准只给风级与征象，"多少分算难受"是页面
+        自己的尺子）：每级的起点分就是该级的 `scoreLo`，级内线性、边界接得上。
+      反证：tests/scenario-beaufort.js（41 条）+ tests/_beaufort-revert.js（12 处注入 + 2 条对照）。
+      ============================================================================================== -->
+<!-- ========== 版本：2026-09-26 · 批 D「危险相态不许说成没事」（冻雨 / 冰雹；规格见 HANDOFF 11.1） ==========
+      ⚠ 批 C（同一天：「全站 降雨→降水」+ 积雪深度卡 + 四处措辞 + `snow_depth` 冻结常量规则）
+        **当时没有加版本头**，本次一并说明，不另补一个假的历史块 —— 其规格与实测在 HANDOFF 8.12。
+
+      ① 动作取值域自成一档：`ACTION_KINDS`（顶部常量表）。
+         原来只有 umbrella / no-umbrella / unknown，冻雨与冰雹沿用 `no-umbrella` ——
+         那个值的含义是"不用带伞（没事）"，而它们要的是"别在外面停留"：
+         **方向相反的两个意思共用一个值**，就是本项目记过的「两条不同的路走到同一个值」。
+         实测后果：冰雹天横幅写「☀️ 基本不用带伞」、阵风提示条还在说"伞可能被吹翻"。
+         现在新增 **`shelter`**（危险，找遮蔽）；冻雨与冰雹共用它，区别由动作句承担。
+         ⚠ 雪天**不并入** shelter（雪要说的是"换防滑的鞋"，不是"躲起来"）——
+           把两者揉进一个值，等于再造一个含义混杂的口袋。
+         ⚠ 横幅只**复用**既有的 need / no / heavy 三色，不新增第四个颜色：
+           读者已经学过"红 = 糟"，再加一个等于让他再学一遍，而收益是零。
+      ② 两条阵风提示条（通用 gust / 骑车合并条）按 `ACTION_KINDS` 的 kind 分岔：
+         `danger` 时**不提伞**，只提醒尽快进遮蔽处 —— 人已经在躲了，再对着伞说话是错的。
+      ③ L1 卡② 冻雨 / 冰雹不再借降雨档位（真机实测 Utqiagvik 报「毛毛细雨」）：
+         主值改报**相态**（冻雨 / 有冰雹），数字改用判据量（24 小时降水量累计）并注明来源。
+         **不建冻雨 / 冰雹档位表**：不是"查不到依据"，是**没有数据源** ——
+         冻雨分级靠积冰厚度、冰雹分级靠冰雹直径，Open-Meteo 都不提供（冰雹最多只有 0/1），
+         建了就是喂不进数、永远走不到的死代码（HANDOFF 11.4）。
+      ④ 结论句句法收口 `verdictOf(tail)`：时间短语自成一**句**
+         「未来 24 小时该地点<b>…</b>。主要集中在 {时段}。」
+         原来在 `<b>` 之外追加「，主要集中在 …」+「。」—— 真机渲染成
+         「**量不大但路面会结冰** ，主要集中在…」（`</b>` 前多一个空格、逗号跑出强调段）。
+         ⚠ 别退回"同一句里补个逗号"：那个逗号**没有配对的另一半分句**，句读错位会原样复发。
+      反证：tests/scenario-frzr-hail.js（41 条）+ tests/_frzr-revert.js（12 处注入 + 3 条对照）。
+      ============================================================================================== -->
+<!-- ========== 版本：2026-09-26 · 批 B「降雪分级 + 积雪措辞」（规格见 HANDOFF 8.11，用户已签字） ==========
+     批 A 只做到"雪天不说雨"，但雪的**强度**还没有尺子（L1 卡② 当时只能说"有积雪 / 雪不大"）。
+     批 B 补上尺子，并把它接到读者看得见的三处出口。
+
+     ① 档位表 `SNOW_FEEL_LEVELS`：七档，判据是 **24h `precipitation` 融水当量（mm）** ——
+        微量降雪 0<x<0.1｜小雪 0.1~2.4｜中雪 2.5~4.9｜大雪 5.0~9.9｜暴雪 10.0~19.9｜
+        大暴雪 20.0~29.9｜特大暴雪 ≥30.0。来源与三档"气象局官网原文"的边界见常量注释。
+        三条规则：`= 0` → 无雪（**不进档**）｜`0<x<0.1` → 微量降雪｜缺失 → 「—」（绝不当 0）。
+        **不做 12h 档、不做中间档**（后者的数值与七档重叠，同一场雪会拿到两个名字）。
+     ② 积雪状况文案 `SNOW_SLIP_LEVELS` = 档位表的 **1:1 镜像**（同边界、同档数、**自己没有任何阈值**）。
+        措辞**只说雪、不断言"滑倒"**（用户 2026-09-26 点名）：真正最滑的是化冻再冻的冰面，
+        与降雪量无关 —— 接近 0℃ 的小雪比 −10℃ 的大雪滑得多。
+     ③ 出口：L0 动作句与体感句（档名 + 积雪句）／L1 卡② 主值改报**档名**／
+        结论卡横幅改说降雪（`action` 取值域**不动**，只换文案与图标）／L1 卡③ 加"穿防滑的鞋"。
+
+     ⚠ 判据量与来源口径（用户 T1 三条约束，写死在 `snowSourceNoteOf` 的注释里）：
+       · "报雪的那一家" = 窗口内 `snowfall` 累计**最大**的一家（并列取 MODELS 顺序靠前者），
+         该家没有降水序列时才退到主源 —— **不是**"唯一报雪的那家"（三家各报各的量时"唯一"无定义）。
+       · 页面必须标注来源，格式照抄能见度卡的「仅 GFS 提供（1/3 个模型有值）」。
+       · **缺数据不许当 0**：`sumPrecipMm` 整段无值返回 `null`，分母里"没给值"与"报了 0"分开算。
+     ⚠ 官方口径的已知差异（本批按签字规格照做，如实记录）：气象局回复原文写明
+       "降雪量等级的划分中，降雪量仅包括固态降雪，**不包含雨或雨夹雪的部分**"，
+       而本页判据用的是 `precipitation`（**含雨**）→ 混合相态窗口下档位会**系统性偏大一格**。
+       所以混合相态时体感句额外说一句"窗口里雨雪混着，档位按含雨的降水量算"。
+     反证：tests/scenario-snow-tier.js（边界逐个断言）+ tests/_snowtier-revert.js（改错边界必须红）。
+     ============================================================================================== -->
+<!-- ========== 版本：2026-09-26 · 批 A「雪天不说雨」（相态判定 + 五个出口的措辞） ==========
+     背景（用户实测）：季克西的 L2 写「小雪」，L0 / L1 / 结论却全程说「雨」；
+     麦克默多 −21℃ 说「降雨很弱」—— 同页互斥 + 物理不可能。
+     批 A 只改**判定与措辞**，数值与判据一个字没动；不含任何"小雪 / 中雪"分级（等批 B）。
+
+     相态 = **两层合成**（用户 2026-09-26 定，注意：**不是**"投票"）：
+       ① 有没有降水：任一模型、任一小时说"有" → 有。
+          两个来源都算：降水量 > 0，**或**码本身就是降水码（有 p=0 但 code=71 的小时）。
+       ② 是什么相态：在有降水的证据里按**严重度**取最高（冰雹 > 冻雨 > 雪 > 雨）。
+     为什么不用众数：麦克默多那格 icon=[3/71/2] 里只有一个 71，取众数会把它抹掉，
+     而这一批要修的恰恰是"看不到雪"。
+
+     ⚠ 这与 FIELD_POLICY.WEATHER_CODE_SOURCE（单源）**不冲突**，两条说的不是一件事：
+     那条产品决定要求"峰值小时与代码必须来自同一个模型"、"类别值不能求平均"；
+     本判定是**逐小时、逐模型**的 —— 某个模型在它自己的某一小时里同时给出
+     "有降水 + 相态码"，天然同源自洽，既没平均、也没跨模型借时刻。
+     L2「官方天气现象」卡仍走单源，本批未改。
+
+     三个量的分工（HANDOFF 表 1，绝不许混）：
+       · precipitation —— mm，融水当量、**已含雪**；国标降雪分级套它（批 B 才建档位）
+       · snowfall      —— cm，雪的深度增量；只回答"会积多厚"
+       · snow_depth    —— m，地表已有雪深；只回答"地上现在多厚"，且**不跨模型平均**
+
+     ⚠ 收尾时修掉三处真 bug（都是**新夹具先抓出来**的，不是看代码看出来的）：
+       · chooseWindowPhase 里 Array.isArray(series) 恒为 false（modelSeries 是**对象**）
+         → "主源说无降水、别家报雪"的兜底分支**从来没执行过**；
+       · source 在传递中恒为 'code' → 气温降级的结果不可分辨，"标明这是推断"拿不到判据；
+       · 那句"标明这是按气温推断的"在注释里承诺了、渲染层一直没有消费点（承诺了没接线）。
+     同时删掉一个**定义了从没被调用**的死函数 phaseFromOtherModels()。
+
+     反证：tests/scenario-snow-phase.js（相态变体套件）+ tests/_snow-revert.js
+     （把每一处实现退回旧写法，断言必须变红）。⚠ 其中一条反证当场抓到**断言自己假绿**：
+     "结论句说降雪"原来扫的是整个 body，被 L1 卡② foot 里的"降雪量不大"骗到 ——
+     已改成只抠结论句（"未来 24 小时该地点…"）再断言。
+     ============================================================================================== -->
 <!-- ========== 版本：2026-09-25 · 显示层修正（多批；逐条判断见 HANDOFF.md 第 4 / 6 / 7 节） ==========
      以下都是用户逐条实测报出、已修并配了断言与"退回旧写法"反证的问题：
        · 结论区「模式一致性」：三个模型都没报雨时不再说"这场雨的把握较高"——
@@ -912,7 +1033,7 @@
   <!-- ==================== 图 1：逐小时降雨双轴图 ==================== -->
   <section class="card" id="overviewCard" style="display:none" data-page-node-id="MY0Dkef2lSVp90BdsFHXgH">
     <div class="card-title" data-page-node-id="L9y5e68GIWpkwEbho8dsUp">
-      <span data-page-node-id="X2F8wiYI5Oz2QtvHCabqGO">逐小时降雨总览</span>
+      <span data-page-node-id="X2F8wiYI5Oz2QtvHCabqGO">逐小时降水总览</span>
       <span class="sub" data-page-node-id="PAZG8breVWhRhsBMBpTYzd">柱=降水量(mm)　线=降水概率(%)</span>
     </div>
     <div class="chart-box" data-page-node-id="Y6KAZ66h7AmyG0aKZewuQR"><canvas id="overviewChart" data-page-node-id="cWk2VggBav5QIviSbB4yuH"></canvas></div>
@@ -1123,32 +1244,423 @@ const WMO_WEATHER_CODE = {
   3:  { text: '阴',            wet: false, cls: 'c-accent2' },
   45: { text: '雾',            wet: false, cls: 'c-warn'    },
   48: { text: '雾凇',          wet: false, cls: 'c-warn'    },
-  51: { text: '小毛毛雨',      wet: true,  cls: 'c-accent2' },
-  53: { text: '毛毛雨',        wet: true,  cls: 'c-accent2' },
-  55: { text: '浓毛毛雨',      wet: true,  cls: 'c-warn'    },
-  56: { text: '冻毛毛雨',      wet: true,  cls: 'c-warn'    },
-  57: { text: '强冻毛毛雨',    wet: true,  cls: 'c-danger'  },
-  61: { text: '小雨',          wet: true,  cls: 'c-accent2' },
-  63: { text: '中雨',          wet: true,  cls: 'c-warn'    },
-  65: { text: '大雨',          wet: true,  cls: 'c-danger'  },
-  66: { text: '冻雨',          wet: true,  cls: 'c-warn'    },
-  67: { text: '强冻雨',        wet: true,  cls: 'c-danger'  },
-  71: { text: '小雪',          wet: true,  cls: 'c-accent2' },
-  73: { text: '中雪',          wet: true,  cls: 'c-warn'    },
-  75: { text: '大雪',          wet: true,  cls: 'c-danger'  },
-  77: { text: '米雪',          wet: true,  cls: 'c-accent2' },
-  80: { text: '小阵雨',        wet: true,  cls: 'c-accent2' },
-  81: { text: '阵雨',          wet: true,  cls: 'c-warn'    },
-  82: { text: '强阵雨',        wet: true,  cls: 'c-danger'  },
-  85: { text: '小阵雪',        wet: true,  cls: 'c-accent2' },
-  86: { text: '大阵雪',        wet: true,  cls: 'c-danger'  },
-  95: { text: '雷阵雨',        wet: true,  cls: 'c-danger'  },
-  96: { text: '雷阵雨伴小冰雹', wet: true, cls: 'c-danger'  },
-  99: { text: '强雷暴伴冰雹',  wet: true,  cls: 'c-danger'  }
+  51: { text: '小毛毛雨',      wet: true,  cls: 'c-accent2', phase: 'rain'  },
+  53: { text: '毛毛雨',        wet: true,  cls: 'c-accent2', phase: 'rain'  },
+  55: { text: '浓毛毛雨',      wet: true,  cls: 'c-warn',    phase: 'rain'  },
+  56: { text: '冻毛毛雨',      wet: true,  cls: 'c-warn',    phase: 'frzr'  },
+  57: { text: '强冻毛毛雨',    wet: true,  cls: 'c-danger',  phase: 'frzr'  },
+  61: { text: '小雨',          wet: true,  cls: 'c-accent2', phase: 'rain'  },
+  63: { text: '中雨',          wet: true,  cls: 'c-warn',    phase: 'rain'  },
+  65: { text: '大雨',          wet: true,  cls: 'c-danger',  phase: 'rain'  },
+  66: { text: '冻雨',          wet: true,  cls: 'c-warn',    phase: 'frzr'  },
+  67: { text: '强冻雨',        wet: true,  cls: 'c-danger',  phase: 'frzr'  },
+  71: { text: '小雪',          wet: true,  cls: 'c-accent2', phase: 'snow'  },
+  73: { text: '中雪',          wet: true,  cls: 'c-warn',    phase: 'snow'  },
+  75: { text: '大雪',          wet: true,  cls: 'c-danger',  phase: 'snow'  },
+  77: { text: '米雪',          wet: true,  cls: 'c-accent2', phase: 'snow'  },
+  80: { text: '小阵雨',        wet: true,  cls: 'c-accent2', phase: 'rain'  },
+  81: { text: '阵雨',          wet: true,  cls: 'c-warn',    phase: 'rain'  },
+  82: { text: '强阵雨',        wet: true,  cls: 'c-danger',  phase: 'rain'  },
+  85: { text: '小阵雪',        wet: true,  cls: 'c-accent2', phase: 'snow'  },
+  86: { text: '大阵雪',        wet: true,  cls: 'c-danger',  phase: 'snow'  },
+  95: { text: '雷阵雨',        wet: true,  cls: 'c-danger',  phase: 'rain'  },
+  96: { text: '雷阵雨伴小冰雹', wet: true, cls: 'c-danger',  phase: 'hail'  },
+  99: { text: '强雷暴伴冰雹',  wet: true,  cls: 'c-danger',  phase: 'hail'  }
+};
+/* 相态的码归属（2026-09-26 批 A）：
+     · 判定一律读本表的 `phase`，**不许在别处再抄一份码列表**（"表定义、判据另抄"是复发点）。
+     · `95` 雷阵雨按降水形态归 **rain**（用户 2026-09-26 确认）。
+     · `96/99` 归 **hail**：本表没有 90/93/94 这几个独立冰雹码，
+       所以"冰雹"相态目前只能由这两个"伴冰雹"的码触发。
+     · **冻雨(frzr) 单列**：它是过冷水滴、落地结冰，比雪更危险，动作建议完全不同。
+     · 相态取值只有四个：`rain` / `frzr` / `snow` / `hail`。 */
+
+
+/* -------------------- 【自定义】相态判定的顺序、严重度与降级阈值（批 A 2026-09-26） --------------------
+   把"哪个相态更该被说出来"定成**表**，而不是散在 if 里的顺序 ——
+   混合降水时（同一窗口里既有雨又有雪）必须有个确定的口径，否则同一份数据两次渲染能给两个结论。
+
+   判据优先级（用户 2026-09-26 定）：
+     ① `weather_code` —— 接口直接告诉你形态，**首选**。但它只有一个模型
+        （见 FIELD_POLICY.WEATHER_CODE_SOURCE）。
+     ② 气温降级 —— 仅当 ① 拿不到时启用：`tempMax < 0` → 雪；`0~3` → 雨夹雪。
+        逆温层会骗人，所以**只当降级**，而且输出里必须标明"这是按气温推断的"。
+     ③ 两者**矛盾**时 —— 如实说出矛盾（例如「ECMWF 说小雨，但气温 −5℃，只可能下雪」），
+        不许静默取一个。这是本页"不撒谎"的强项，不是异常分支。
+*/
+
+/** 相态严重度顺序：**越大越严重**。窗口内混合时取最大值（用户 2026-09-26 定：冰雹 > 冻雨 > 雪 > 雨）。 */
+const PHASE_SEVERITY = { rain: 0, frzr: 1, snow: 2, hail: 3 };
+
+/** 气温降级阈值（℃）——仅当 weather_code 整段缺值时使用。 */
+const PHASE_TEMP_FALLBACK = {
+  SNOW_MAX_C: 0,     // tempMax < 0 → 只可能下雪
+  MIXED_MAX_C: 3     // 0 ~ 3 → 雨夹雪
 };
 
-/* -------------------- 【国家标准】GB/T 28592-2012《降水量等级》 --------------------
-   这是 24 小时降水量口径的分级（标准里另有 12 小时口径，本页只用 24 小时）。
+/** 积雪深度显示阈值（与能见度同一套思路：过了 1 m 就换单位，别报"120 cm"）。 */
+const DEPTH_SHOW = {
+  M_FROM_CM: 100,   // >= 100 cm 改用"米"显示
+  M_STEP: 0.1,      // 米口径的取整步长
+  CM_STEP: 1        // 厘米口径的取整步长
+};
+
+/**
+ * 取某个小时的窗口相态。**只读 `WMO_WEATHER_CODE[code].phase`**，不另抄码列表
+ * （"表定义、判据另抄"是本项目反复踩的复发点）。
+ * @param {number|null} code - 该小时的 WMO weather_code
+ * @returns {string|null} `rain` / `frzr` / `snow` / `hail`；码缺失或不在表内 → `null`
+ */
+function phaseOfCode(code) {
+  const c = numOrNull(code);
+  if (c === null) return null;
+  const entry = WMO_WEATHER_CODE[c];
+  return (entry && entry.phase) ? entry.phase : null;
+}
+
+/**
+ * 给一个"降水小时"定相态：优先读表，拿不到才降级到气温，两者矛盾时如实标记。
+ *
+ * 两种**性质完全不同**的"没拿到相态"必须分开（用户 2026-09-26 点名，D 方案）：
+ *   · `source: null`   —— 字段**缺失**（码为 null / 不在表内）→ 降级到气温**合理**
+ *   · `conflict: true` —— 码**有值但表示无降水**（如 2 多云 / 3 阴）→ **这不是缺信号，是矛盾**
+ *                         （接口说"没有降水"，可我们正在为"有降水的小时"定相态）
+ *
+ * @param {object} args
+ * @param {number|null} args.code  - 该小时 WMO weather_code
+ * @param {number|null} args.tempC - 该小时气温（降级判据，也是"降雨 vs 气温"矛盾的判据）
+ * @returns {{phase: string|null, source: 'code'|'temp'|null, conflict: boolean,
+ *            codeButDry: boolean}}
+ */
+function phaseFromCodeAndTemp({ code, tempC }) {
+  const c = numOrNull(code);
+  const entry = c === null ? null : WMO_WEATHER_CODE[c];
+  const byCode = entry ? entry.phase : null;
+  const t = numOrNull(tempC);
+
+  /* ① 首选：代码明确给了形态（rain/frzr/snow/hail） */
+  if (byCode) {
+    /* 只对"雨类"做矛盾检查：代码说 rain 而气温 <= 0 时，雨在物理上不成立。
+       ⚠ 这里**不把结论改成雪** —— 只标记冲突，由文案层如实说出两边的说法。 */
+    const conflict = (byCode === 'rain' && t !== null && t < PHASE_TEMP_FALLBACK.SNOW_MAX_C);
+    return { phase: byCode, source: 'code', conflict, codeButDry: false };
+  }
+
+  /* ② 码有值、但它是一个**非降水码**（如 2 多云 / 3 阴）——
+        接口一边说"没有降水"，我们一边在给"有降水的小时"定相态：这是矛盾，不是缺信号。
+        如实标记 `codeButDry`，**不降级、不猜**（D 方案的核心那一格）。 */
+  if (entry && entry.wet === false) {
+    return { phase: null, source: null, conflict: true, codeButDry: true };
+  }
+
+  /* ③ 真的没信号（码缺失 / 不在表内）→ 才轮到气温降级，且上层必须标明"这是推断" */
+  if (t !== null) {
+    if (t < PHASE_TEMP_FALLBACK.SNOW_MAX_C) return { phase: 'snow', source: 'temp', conflict: false, codeButDry: false };
+    if (t <= PHASE_TEMP_FALLBACK.MIXED_MAX_C) return { phase: 'snow', source: 'temp', conflict: false, codeButDry: false };
+  }
+  return { phase: null, source: null, conflict: false, codeButDry: false };
+}
+
+/**
+ * 窗口级相态判定。**两层**（用户 2026-09-26 定的合成规则）：
+ *   ① 有没有降水 —— 任一模型、任一小时说"有" → 有（这是提高召回的正解）
+ *   ② 是什么相态 —— 在"有降水"的证据里按**严重度**取最高（冰雹 > 冻雨 > 雪 > 雨）
+ *
+ * ⚠ 合成**不能用"众数"**（用户 2026-09-26 明确否掉）：麦克默多那格 `icon=[3/71/2]`
+ *   里只有一个 71（雪），取众数会把它抹掉，结论变成"没有雪" —— 而我们要修的
+ *   恰恰是"看不到雪"。严重度取最高保证"更严重的相态一定被说出来"。
+ *
+ * ⚠ 与 `FIELD_POLICY.WEATHER_CODE_SOURCE`（单源）的关系 —— 这里**不是**在推翻那条产品决定：
+ *   那条决定说的是"**峰值小时与代码必须来自同一个模型**"（别拿甲模型的峰值时刻去查
+ *   乙模型的码）和"类别值不能求平均"。本函数是**逐小时、逐模型**地判：
+ *   某个模型在**它自己的**某一小时里同时给出"有降水 + 相态码"，这两件事天然同源自洽，
+ *   既没有平均、也没有跨模型借时刻。L2「官方天气现象」卡仍走单源（未改）。
+ *
+ * @param {object} args
+ * @param {object} args.series - `{ 模型名: { weather_code, precipitation, temperature_2m, snowfall } }`
+ *   （**对象**，不是数组 —— 2026-09-26 夹具抓到：这里原来写 `Array.isArray(series)`，
+ *   恒为 false，于是"别家报雪"的兜底分支从来不执行）
+ * @param {Array<string>} args.models - 参与合成的模型名
+ * @param {number} args.start - 窗口起点下标
+ * @param {number} args.len - 窗口长度（小时）
+ * @returns {{phase: string|null, source: 'code'|'temp'|'snowfall'|null, conflict: boolean,
+ *            codeButDry: boolean, snowHours: number, rainHours: number, mixed: boolean,
+ *            precipHours: number, snowCm: number|null, snowModel: string|null,
+ *            precip24Mm: number|null, precipSourceModel: string|null,
+ *            precipModelMaxMm: number|null, precipModelMaxModel: string|null}}
+ */
+function chooseWindowPhase({ series, models, start, len }) {
+  const tally = { rain: 0, frzr: 0, snow: 0, hail: 0 };
+  const evidence = [];             // 逐条证据（模型 / 小时 / 码 / 相态）—— 打进日志，事后可核对
+  /* 批 C（2026-09-26）：**逐模型的相态票数** —— L0 依据行要如实说"谁报了什么"
+     （原来报的是 `rainCount`：季克西明明 1/3 模型有雨、跨模型合成出"雪"，
+     依据却写「1/3 模型预测有雪」—— 既不解释结论，又与"3/3 个模型有值"打架）。 */
+  const votesByModel = {};
+  /* 批 C：同一份"谁有降水"的清单也给依据行用（`votesByModel` 只记**判出了相态**的那些小时，
+     手工构造 ctx 的测试里可能为空 —— 那时光靠票数会退化成"模型没给出可用信号"）。 */
+  const wetModels = [];
+  let precipHours = 0;
+  let conflict = false;
+  let codeButDryCount = 0;         // "有降水、但该模型的码说无降水"的小时数
+  let tempFallbackHours = 0;       // 相态靠气温推断出来的小时数
+  let mainWet = false;             // 主源自己有没有说过"这一小时有降水"
+
+  const src = FIELD_POLICY.WEATHER_CODE_SOURCE;
+  const cellOf = (s, field, i) => (s && Array.isArray(s[field]) ? s[field][start + i] : null);
+
+  for (let i = 0; i < len; i++) {
+    for (const m of models) {
+      const s = series ? series[m] : null;
+      if (!s) continue;
+      const code = numOrNull(cellOf(s, 'weather_code', i));
+      const p    = numOrNull(cellOf(s, 'precipitation', i));
+      const t    = numOrNull(cellOf(s, 'temperature_2m', i));
+
+      /* ①「有没有降水」：两个来源都算数 —— 降水量 > 0，或**码本身就是降水码**
+         （季克西 ICON 有 p=0 但 code=71 的小时；只看降水量会把它漏掉）。 */
+      const codeWet = code !== null && !!(WMO_WEATHER_CODE[code] && WMO_WEATHER_CODE[code].wet);
+      const wet = (p !== null && p > 0) || codeWet;
+      if (!wet) continue;
+
+      precipHours++;
+      if (m === src) mainWet = true;
+      if (wetModels.indexOf(m) < 0) wetModels.push(m);
+
+      const r = phaseFromCodeAndTemp({ code, tempC: t });
+      if (r.conflict) conflict = true;
+      if (r.codeButDry) codeButDryCount++;
+      if (r.phase !== null) {
+        tally[r.phase]++;
+        if (r.source === 'temp') tempFallbackHours++;
+        votesByModel[m] = votesByModel[m] || {};
+        votesByModel[m][r.phase] = (votesByModel[m][r.phase] || 0) + 1;
+        if (evidence.length < 48) evidence.push({ model: m, hour: i, code, phase: r.phase, from: r.source });
+      }
+    }
+  }
+
+  /* ② 相态按严重度取最高 */
+  const ranked = Object.keys(tally)
+    .filter(k => tally[k] > 0)
+    .sort((a, b) => PHASE_SEVERITY[b] - PHASE_SEVERITY[a]);
+  let phase = ranked.length > 0 ? ranked[0] : null;
+
+  /* `source` 的语义（⚠ 原来这里**恒为 `'code'`**：气温降级的信息在传递中丢了，
+     于是"标明这是按气温推断的"那句文案永远拿不到判据 —— 2026-09-26 夹具抓到并修）：
+       'code' = 至少有模型用码直接定了这个相态；'temp' = 支撑它的证据**全部**来自气温推断 */
+  const support = phase === null ? [] : evidence.filter(e => e.phase === phase);
+  let usedSource = support.length === 0 ? null
+    : (support.some(e => e.from === 'code') ? 'code' : 'temp');
+
+  /* 两个降雪量：逐模型取窗口累计，选"有真值的最强一家"并记下是谁。
+     不跨模型平均 —— 实测格陵兰同一点三家 snow_depth 差 27 倍（HANDOFF 8.3.1）。 */
+  let snowCm = null;
+  let snowModel = null;
+  for (const m of models) {
+    const s = series ? series[m] : null;
+    if (!s || !Array.isArray(s.snowfall)) continue;
+    const sd = sumSnowfallCm(s.snowfall, start, len);
+    if (sd !== null && sd > (snowCm === null ? 0 : snowCm)) { snowCm = sd; snowModel = m; }
+  }
+
+  /* 降雪档位的判据量：**窗口降水累计（融水当量 mm）**，批 B（2026-09-26）新增。
+     ⚠ 口径必须与"报雪的那一家"绑死，否则就是"报的量和判的量不是同一个量"：
+       逐模型算窗口累计 → 优先取**报雪那一家**（`snowModel`，与 `snowCm` 同一个来源），
+       它没有降水序列时才降级取"有值的最大一家"（并标出来）—— 缺值**不当 0**。 */
+  const perModelPrecipMm = {};
+  for (const m of models) {
+    const s = series ? series[m] : null;
+    if (!s) continue;
+    const t = sumPrecipMm(s.precipitation, start, len);
+    if (t !== null) perModelPrecipMm[m] = t;
+  }
+  const precipKeys = Object.keys(perModelPrecipMm);
+  const maxPrecipMm = precipKeys.length > 0
+    ? Math.max.apply(null, precipKeys.map(k => perModelPrecipMm[k])) : null;
+  const maxPrecipModel = precipKeys.length > 0
+    ? precipKeys.find(k => perModelPrecipMm[k] === maxPrecipMm) : null;
+  const precip24Mm = (snowModel !== null && snowModel !== undefined &&
+                      perModelPrecipMm[snowModel] !== undefined)
+    ? perModelPrecipMm[snowModel]
+    : maxPrecipMm;
+  const precipSourceModel = (snowModel !== null && snowModel !== undefined &&
+                             perModelPrecipMm[snowModel] !== undefined)
+    ? snowModel : maxPrecipModel;
+
+  /* ---- 批 C（2026-09-26）：`snow_depth` 的**冻结常量**判定 ----
+     规则（用户拍板，通用陷阱、不只修格陵兰）：**某家的 `snow_depth` 在整段窗口内恒为常数
+     → 判为疑似无效值 → 不作主值、不计入分歧。**
+     为什么必须这么做（本轮逐模型取证，格陵兰 Summit 72.58/−38.46，elevation 3205 m）：
+       · 三家自报单位都是 `m`（`hourly_units.snow_depth=m`）→ **不是"读错单位"**；
+       · **ECMWF 在 Summit 与 NGRIP（相距 300 km）都给"恰好 20.35"**、
+         **ICON 两地都无条件给"恰好 40.00"**，且整段 48 小时一动不动 → **那是填充值，不是预报场**；
+       · 只有 **GFS 是 1.46→1.42 逐小时缓慢变化**（真实积雪场该有的样子）。
+     → 所以"用 GFS 当主值"的**依据是这条规则**（另两家返回的不是预报值），
+       不是"它看着最合理"（`node .workbuddy/tmp/probe-snow-depth-units.js` 可复现）。
+     ⚠ 常数**必须非零**才算可疑：某地确实无雪时三家都恒为 `0`，那是真值，不能当无效。
+     ⚠ 另一个**独立**问题（不在这条规则的射程内、也不改）：冰盖格点上 GFS 的 1.46 m
+       超出气象观测里"积雪深度"的常见量级（量雪尺本就 1 m 长）—— 如实显示并标明来源。 */
+  const perModelDepthM = {};       // 逐模型窗口内首个有值的小时（状态量）
+  const depthValidM = {};          // 同上，但**剔除疑似填充常量**后仍有效的那些
+  const depthSamples = {};         // 逐模型的原始值（供卡片列出三家）
+  const depthSuspect = {};         // 逐模型：true = 整段恒为同一个非零值
+  for (const m of models) {
+    const s = series ? series[m] : null;
+    const arr = (s && Array.isArray(s.snow_depth)) ? s.snow_depth.slice(start, start + len) : null;
+    if (!arr) continue;
+    const vals = arr.map(numOrNull).filter(v => v !== null);
+    if (!vals.length) continue;
+    const first = vals[0];
+    const frozen = vals.every(v => v === first);
+    depthSamples[m] = first;
+    perModelDepthM[m] = first;                 // 状态量：窗口内取第一个有值的小时
+    depthSuspect[m] = frozen && first !== 0;   // 非零且整段不变 → 疑似填充值
+    if (!depthSuspect[m]) depthValidM[m] = first;
+  }
+
+  /* 兜底（D 那格）：所有模型的码都没给出相态，但积雪说明确实在下雪
+     （麦克默多：主源说无降水、别家报雪）→ 相态取"雪"，来源标 `snowfall`。 */
+  if (phase === null && snowCm !== null && snowCm > 0) {
+    phase = 'snow';
+    usedSource = 'snowfall';
+  }
+
+  /* 主源的码**有值**、却一小时降水都没说 → 与"雪"矛盾，必须如实说出分歧。
+     ⚠ 与"主源码整段缺失"严格分开：缺失是没信号（不算分歧，走气温降级），
+       有值却说无降水才是矛盾（D 方案点名的两种情形，不许糊成一种）。 */
+  const mainCodes = series && series[src] ? series[src].weather_code : null;
+  const mainHasCode = Array.isArray(mainCodes)
+    && mainCodes.slice(start, start + len).some(v => numOrNull(v) !== null);
+
+  const rainHours = tally.rain + tally.hail;   // 冰雹也归"不是雪"那一侧，用于 mixed 判断
+  /* 批 C（2026-09-26）：`mixed` 原来 = `tally.snow > 0 && rainHours > 0` ——
+     那是**跨模型**统计，于是"ECMWF 报雨 + ICON 报雪"（两家各说各的）也被算成
+     「窗口里雨雪混着」。在季克西那种点上，这句会**误导**：读者会以为要下雨夹雪，
+     真相是两家模型打架。所以改成只认**同一个模型自己在窗口内**既报雪又报非雪。
+     ⚠ 跨模型分歧本身没被藏起来：依据行的相态来源句会如实写"ECMWF 报雨、ICON 报雪 → 取雪"。 */
+  const mixed = models.some(m => {
+    const v = votesByModel[m];
+    return !!v && v.snow > 0 && ((v.rain || 0) + (v.hail || 0)) > 0;
+  });
+  const out = {
+    phase,
+    source: usedSource,
+    conflict,
+    codeButDry: (phase === 'snow' && mainHasCode && !mainWet),
+    mixed,
+    snowHours: tally.snow,
+    rainHours,
+    precipHours,
+    snowCm,
+    snowModel,
+    /* 批 B：降雪档位判据（24h 融水当量 mm）+ 它的来源模型（缺值不当 0，见上面的取法） */
+    precip24Mm,
+    precipSourceModel,
+    /* 同一窗口里"有值的最大一家"的降水量 —— 只用于判断来源标注要不要写"按 X 读数" */
+    precipModelMaxMm: maxPrecipMm,
+    precipModelMaxModel: maxPrecipModel,
+    /* 批 C：逐模型相态票数（L0 依据行如实说"谁报了什么"）+ 雪深的三份原始值与有效性 */
+    votesByModel,
+    wetModels,
+    dryModels: models.filter(m => wetModels.indexOf(m) < 0),
+    perModelDepthM,
+    depthSamples,
+    depthSuspect,
+    depthValidM
+  };
+
+  /* 原始分布打进日志（用户 2026-09-26 要求）——
+     事后要回答"页面当时为什么这么说"，只能靠这条。 */
+  if (typeof console !== 'undefined' && console && typeof console.log === 'function') {
+    console.log('[相态] 窗口 ' + len + 'h：' + JSON.stringify({
+      phase, source: usedSource, mainWet, mainHasCode, precipHours,
+      tally, tempFallbackHours, codeButDryCount, snowCm, snowModel,
+      precip24Mm, precipSourceModel, votesByModel,
+      depthSamples, depthSuspect,
+      codeButDry: out.codeButDry
+    }) + ' 证据 ' + JSON.stringify(evidence.slice(0, 12)));
+  }
+  return out;
+}
+
+/* 注：这里原来有一个 `phaseFromOtherModels()`（"主源说无降水、别家报雪"的兜底分支），
+   它是**定义了从没被调用**的死函数 —— 而 `chooseWindowPhase` 里那份形似的兜底
+   因为把 `series` 当数组判（`Array.isArray(series)` 恒为 false）**从来没执行过**。
+   2026-09-26 夹具抓到之后，两处合成**一处实现**：见上面 `chooseWindowPhase` 的兜底段。 */
+
+/**
+ * 窗口降水累计（**融水当量 mm**）—— 降雪分档的判据量（批 B 2026-09-26）。
+ *
+ * 为什么是 `precipitation` 而不是 `snowfall`：国标的降雪量等级按**融水当量 mm** 划，
+ * 而 `precipitation` 本身就是 mm 且**已含雪**；`snowfall` 是雪深 cm，只用于"会积多厚"，
+ * **不能**拿去查国标档位（用户 2026-09-26 纠正）。
+ * ⚠ 官方原话的边界（⚠⚠ 与本项目的分档有**一处必须人工兜**）：
+ *   气象局回复原文："降雪量等级的划分中，**降雪量仅包括固态降雪，不包含雨或雨夹雪的部分**。"
+ *   而本页判据是 `precipitation`（**含雨**）—— 混合相态窗口下会**系统性偏大**一格。
+ *   本批按签字规格照做（判据就是 `precipitation`），偏大这件事由
+ *   `synthesizedFeelLine` 的混合相态交代句承担；将来若要严格贴国标，
+ *   得先有"按相态拆出的固态降水量"字段（Open-Meteo 未提供）。
+ *
+ * 缺失语义（项目铁律）：整段没有有效值 → `null`，**绝不当 0** ——
+ * "某家没给值"与"某家报了 0"是两件事（0 是合法的"确实没下"）。
+ * @param {Array<number|null>} precipMm - 逐小时降水量（mm）
+ * @param {number} start - 窗口起点下标
+ * @param {number} len - 窗口长度（小时）
+ * @returns {number|null} 累计毫米数；整段无值时 `null`
+ */
+function sumPrecipMm(precipMm, start, len) {
+  if (!Array.isArray(precipMm)) return null;
+  return sumSeg(precipMm.slice(start, start + len));
+}
+
+/**
+ * 窗口降雪深度增量（cm）—— 「地上会积多厚」用这个，**不用于档位分级**。
+ * @param {Array<number|null>} snowfallCm - 逐小时 snowfall（cm）
+ * @param {number} start - 窗口起点下标
+ * @param {number} len - 窗口长度（小时）
+ * @returns {number|null} 累计雪深（cm）；整段无值时 `null`
+ */
+function sumSnowfallCm(snowfallCm, start, len) {
+  if (!Array.isArray(snowfallCm)) return null;
+  return sumSeg(snowfallCm.slice(start, start + len));
+}
+
+/**
+ * 「地上会积多厚」的显示文本（`snowfall` = 雪的深度增量，接口单位 cm）。
+ * 取整规则：< 1 cm 报一位小数（0.3 cm 这种要留住，别抹成 0），>= 1 cm 取整到 1 cm。
+ * ⚠ 这里**只显示数值，不套任何国标分级** —— 国标分级的量是融水当量，不是雪深。
+ * @param {number|null} cm - 降雪深度增量（cm）
+ * @returns {string} 形如 `0.3 厘米` / `2 厘米`；无值 → 「—」
+ */
+function fmtSnowfall(cm) {
+  const v = numOrNull(cm);
+  if (v === null) return '—';
+  if (v <= 0) return '0 厘米';
+  if (v < 1) return `${roundStep(v, 0.1).toFixed(1)} 厘米`;
+  return `${roundStep(v, 1)} 厘米`;
+}
+
+/**
+ * 「地上现在多厚」的显示文本（`snow_depth` = 地表已有雪深，接口单位 m）。
+ * 与能见度同一套思路分两段：< 1 m 用厘米（1 cm 步长）、>= 1 m 用米（0.1 m 步长）。
+ * ⚠ 这是**状态量**：不是今天下了多少，也不该跨模型平均（三家对同一地点能差 27 倍，见 HANDOFF 8.3.1）。
+ * @param {number|null} meters - 积雪深度（m）
+ * @returns {string} 形如 `20 厘米` / `1.5 米`；无值 → 「—」
+ */
+function fmtSnowDepth(meters) {
+  const m = numOrNull(meters);
+  if (m === null) return '—';
+  const cm = m * DEPTH_SHOW.M_FROM_CM;   // 1 m = 100 cm；阈值本身就是那个换算基数
+  if (cm < DEPTH_SHOW.M_FROM_CM) return `${roundStep(cm, DEPTH_SHOW.CM_STEP)} 厘米`;
+  return `${roundStep(m, DEPTH_SHOW.M_STEP).toFixed(1)} 米`;
+}
+
+
+/* -------------------- 【国家标准 · 原文级】GB/T 28592-2012《降水量等级》表 1（24h 降雨量） --------------------
+   ⚠ 2026-09-26 批 F（收口）：**标准原文 PDF 已取得**（用户提供，存 `standards/`，
+   md5 `0E099FB85C2BA9D86A44F172314D3A59`）——本表与表 1 的 24h 一列**逐档核对一致**，
+   所以来源等级从"二手多源一致"升到**原文级**（可核对件见 `standards/README.md` 第 1 节）。
+   这是 24 小时降水量口径的分级（标准里另有 12 小时口径，**本页只用 24 小时、12h 档不做**）。
    注意分界是"上界含不含"：标准写法为 0.1~9.9 小雨、10.0~24.9 中雨……
    所以这里用"小于下一档下界"来判断，不会把 10.0 误判成小雨。 */
 const RAIN_GRADE_24H = [
@@ -1159,6 +1671,53 @@ const RAIN_GRADE_24H = [
   { max: 100,      name: '暴雨',       cls: 'c-danger'  },
   { max: 250,      name: '大暴雨',     cls: 'c-danger'  },
   { max: Infinity, name: '特大暴雨',   cls: 'c-danger'  }
+];
+
+/* -------------------- 【国家标准 · 原文级】GB/T 28592-2012《降水量等级》表 2（24h 降雪量，融水当量 mm） --------------------
+   批 B（2026-09-26 用户签字，全规格见 HANDOFF 8.11）。**与上面的雨量级是同一个国标的另一张表**，
+   判据不同源：雨量级看"降雨量"、本表看"降雪量"，所以**两张表并存、不合并**。
+
+   判据：**未来 24 小时 `precipitation` 的累计毫米数**（不是 `snowfall`，它是雪深 cm）。
+   ⚠ 这不是"凑合"：标准第 **2.1 条**把"降水量"定义为
+     "**液态（降雨）或固态（降雪）（经融化后）**降水……积聚的深度" ——
+     即本表的毫米数是**融水当量**，与 `precipitation` 的口径一致（原文见 `standards/README.md`）。
+   四条实现规则（用户点名，**缺一条都是错的**）：
+     · `= 0` → **无雪**（**不进**任何档，显示「—」/无降雪），
+       所以本表第一档是 `0.1` 而不是 `0`，判定函数另加 `x <= 0 → null` 的守卫；
+       「完全没下雪」不能和「下了 0.05mm」同档 —— 本项目"两条路走到同一个值"那条老坑。
+     · `0 < x < 0.1` → 微量降雪（零星小雪）：**刻意的小口子**，它不覆盖 0。标准原文这一档写的是 `<0.1`。
+     · 缺失 → 「—」，**绝不当 0**（`sumPrecipMm` 全段无值返回 `null`）。
+     · **不做 12h 档**（本页只用 24h 口径）；**不做中间档**（小到中雪 / 中到大雪 /
+       大到暴雪与七档数值**重叠**，同一场雪会拿到两个名字）。
+       ⚠ 将来若要"小到中雪"这种说法，**只能从本表派生显示措辞，不许加第二张表**（用户原话）。
+   来源（⚠ 2026-09-26 已升级为**原文级**，此前只有其中三档是官网原文）：
+     · **七档全部**抄自 GB/T 28592—2012 **表 2「不同时段的降雪量等级划分表」的 24h 一列**；
+       标准原文 PDF 由用户提供（存 `standards/GB-T-28592-2012-降水量等级.pdf`，
+       md5 `0E099FB85C2BA9D86A44F172314D3A59`），表体摘录见 `standards/README.md` 第 1 节。
+     · 复核（仍然成立、当初没白核）：气象局官网民声回复
+       https://www.cma.gov.cn/wmhd/gzly/20CMAckly/202308/t20230822_5727276.html 给的
+       暴雪/大暴雪/特大暴雪三档 24h 边界，与表 2 **逐值一致**。
+     · ⚠ 标准里 **12h 档与 24h 档是两套数**（"暴雪"12h 6.0~9.9 / 24h 10.0~19.9）——
+       早年手册里"12h 表与 24h 同值"的说法与原文不符（本页只做 24h，不受影响）。
+   边界写法：档名用"小于下一档下界"判（与上面雨量级同一写法），所以 2.4 与 2.5 不会同时命中；
+   标准写的是"0.1~2.4"这种**含两端**的区间，在 0.1mm 观测精度下与"<2.5"等价，两种写法不打架。
+
+   ⚠ 每档的 `slip` 是**积雪状况措辞**，对应 `WET_RISK_LEVELS` 在雨那边的位置（批 B 待办第 2 项）。
+     用户 2026-09-26 的硬约束：它必须是档位的 **1:1 映射、自己不许有任何阈值** ——
+     所以它**不另立一张表**，而是与 `max` / `name` 写在**同一档**里：
+     "同边界、同档数"于是是**结构上不可能漂**的（两张平行表迟早会分叉），
+     `snowSlipText` 里也因此连一个数字都不用写（先取档、再读 `slip`，一处判据）。
+     ⚠ 措辞**只说"雪"，不许断言"滑倒"**（用户原话）：真正最滑的是化冻再冻的冰面，
+     与降雪量无关（气温接近 0℃ 的小雪比 −10℃ 的大雪滑得多）—— 说雪，别说滑。
+     断言守着（`scenario-snow-tier.js`）：逐档 `slip` 非空、且整表不含"滑"字。 */
+const SNOW_FEEL_LEVELS = [
+  { max: 0.1,      name: '微量降雪',   slip: '零星小雪，路面基本不积',   cls: 'c-muted'   },
+  { max: 2.5,      name: '小雪',       slip: '小雪，路面有雪',           cls: 'c-ok'      },
+  { max: 5.0,      name: '中雪',       slip: '中雪，路面明显积雪',       cls: 'c-accent'  },
+  { max: 10.0,     name: '大雪',       slip: '大雪，路面雪很厚',         cls: 'c-warn'    },
+  { max: 20.0,     name: '暴雪',       slip: '暴雪，路面被雪盖住',       cls: 'c-orange'  },
+  { max: 30.0,     name: '大暴雪',     slip: '大暴雪，路面几乎没法走',   cls: 'c-danger'  },
+  { max: Infinity, name: '特大暴雪',   slip: '特大暴雪，雪量极大',       cls: 'c-danger'  }
 ];
 
 /* -------------------- 【经验值】体感温度档位（℃） --------------------
@@ -1190,9 +1749,16 @@ const FEELS_LEVELS = [
 
 /* -------------------- 【经验值】阵风档位（km/h） --------------------
    阵风（wind_gusts_10m）比平均风速更能反映"出门会不会被吹得难受"。
-   档位参照蒲福风级在 10 米高度的对应风速区间做了口语化处理。 */
+   ⚠ 批 E（2026-09-26）**改了这张表的边界条件**：它原来写「档位参照蒲福风级在 10 米高度的
+     对应风速区间做了口语化处理」——**这句话是错的，已删**：蒲福风级按标准原文
+     （GB/T 28591—2012 3.1 条）判的是**10 m 高度处的平均风速**，拿它给阵风定档就是量纲错配。
+     现在这张表的定位是**阵风自己的专用档表**（无标准可依，纯经验值），只做两件事：
+       ① 给阵风卡上色；② 阵风提示条的档名。
+     它**不参与**风级、不参与评分、不参与副标题措辞（那些一律走 BEAUFORT_LEVELS）。
+   ⚠ 第一档的 tip 原来是手写的全称否定「对出行没有影响」—— 2026-09-26 用户判定它
+     "被同一页的分数反证"（与 geo-note 同类病），已换成只描述现象的措辞。 */
 const GUST_LEVELS = [
-  { max: 30,       name: '和缓', tip: '对出行没有影响',       cls: 'c-ok'      },
+  { max: 30,       name: '和缓', tip: '风力温和，注意帽子与骑行安全', cls: 'c-ok'      },
   { max: 50,       name: '风大', tip: '注意帽子与骑行安全',   cls: 'c-accent2' },
   { max: 75,       name: '强风', tip: '注意高空坠物',         cls: 'c-warn'    },
   { max: 90,       name: '大风', tip: '尽量避免户外活动',     cls: 'c-orange'  },
@@ -1263,6 +1829,26 @@ const OUTFIT_TIERS = {
   SWING_LO_C: 18
 };
 
+/* -------------------- 【自定义】L1 卡③ 那句人话的长度上限（字） --------------------
+   这条 hint 的 20 字上限是 2026-09-24 就定下的既有契约（`scenario-stage3` 里
+   对 `tempOutfitText` 的全组合穷举扫描锁着）。批 B 接积雪时**不许悄悄突破它**，
+   所以把上限提成具名常量，让"装得下才补"这句话在代码里看得见。 */
+const OUTFIT_HINT_MAX = 20;
+/* `tempOutfitText` 的三级后缀（热端两句 + 温差一句）也吃同一个上限 ——
+   原来它们是散在函数里的裸字面量，批 B 加闸门时一并收拢，避免"两个 20 分头漂"。 */
+const OUTFIT_SUFFIX_MAX = OUTFIT_HINT_MAX;
+
+/* -------------------- 【自定义】雪天在穿衣提示后补的那一句 --------------------
+   批 B（2026-09-26，用户待办第 4 项「穿衣提示接上积雪」）。
+   ⚠ 只在"至少小雪（`SNOW_FEEL_LEVELS` 首档下界以上）**且装得下**"时补 ——
+     装不下就不补（宁可少一句，也不硬切字符串，那是本项目明令禁止的写法）。
+   ⚠ 措辞是**动作**（换鞋），不是对雪的断言 —— 用户约束禁的是"滑倒风险"这类断言
+     （`SNOW_FEEL_LEVELS` 的 `slip` 里一个字"滑"都没有），动作建议不受此限。 */
+const SNOW_SHOE_SUFFIX = '，穿防滑的鞋';
+/* 已经说了"别出门"的那一档（`OUTFIT_TIERS.POLAR_C`）不再叠动作建议 ——
+   判据是**那句主文案**本身，不是温度阈值（不在这里新造第二把尺子）。 */
+const OUTFIT_STAY_IN_TEXT = '尽量别出门';
+
 /* -------------------- 【经验值】能见度档位（米） --------------------
    判据是窗口内的**最小**能见度：最低的那一刻决定"看不清到什么程度"。
    只有 GFS 提供这个要素（见 FIELD_POLICY.VISIBILITY_SOURCE），
@@ -1311,7 +1897,7 @@ const ALERT_THRESHOLD = {
    —— 平均值 8.5℃ 看起来无事，人却在半夜冻着。用户给的措辞"体感仅 X℃ / 体感达 X℃"
    本身也分别指向低端与高端。 */
 const ALERT_RULES = [
-  { id: 'rain', prio: 1, cls: 'a-danger', at: '有效雨强 > 16mm/h',
+  { id: 'rain', prio: 1, cls: 'a-danger', at: '有效降水强度 > 16mm/h',
     /* 用有效雨强（风雨耦合），与降雨体感卡、淋湿风险同源 —— 有风时有效雨强高于原始雨强，
        若还按原始雨强判，会出现"卡片写短时强降水、提示条却不出现"的漏报（最终总验收第 7 条）。 */
     when: c => numOrNull(c.effRainPeak) !== null && c.effRainPeak > ALERT_THRESHOLD.HOUR_MM,
@@ -1334,8 +1920,13 @@ const ALERT_RULES = [
        现在把档名并进来（保留与 L0 分岔的那半句，它解决的是"带伞 vs 撑不住"的矛盾）。 */
     text: (c, d) => {
       const lv = gustLevel(c.gustPeak);
-      return (lv ? `${lv.name}，` : '') + `阵风 ${fmtWind(c.gustPeak)} km/h，` +
-        (d && d.action === 'umbrella' ? '伞可能撑不住，考虑雨衣' : '伞可能被吹翻');
+      /* 批 D：伞措辞按 `ACTION_KINDS` 的 kind 分岔（原来只分"带伞 / 不带伞"两档）——
+         冻雨/冰雹是"危险、找遮蔽"，在阵风条里继续对着伞说话会把读者引向"我正打着伞"。
+         ⚠ 取 `kind` 前先显式判空：不传 decision 时走通用分支（`伞可能被吹翻`）。 */
+      const ak = (d && ACTION_KINDS[d.action]) ? ACTION_KINDS[d.action] : null;
+      const gustTail = (ak && ak.kind === 'cover') ? '伞可能撑不住，考虑雨衣'
+        : (ak && ak.kind === 'danger') ? ak.alertGust : '伞可能被吹翻';
+      return (lv ? `${lv.name}，` : '') + `阵风 ${fmtWind(c.gustPeak)} km/h，` + gustTail;
     } },
 
   { id: 'vis', prio: 3, cls: 'a-warn', at: '能见度 < 2km',
@@ -1383,7 +1974,7 @@ const WMO_CODE_SOURCE_TAG = '【国际标准】WMO 天气代码';
 
 /* 降雨体感卡底部的小字（用户要求：注明两把尺子的口径差别） */
 const CARD_RAIN_FEEL_SCOPE_NOTE =
-  '【经验值】体感档基于小时雨强，国标等级基于 24 小时累计，两者口径不同';
+  '【经验值】体感档基于小时降水强度，国标等级基于 24 小时累计，两者口径不同';
 
 /* =========================================================================
    结论区 / 建议区阈值（2026-09-24 收拢，消除散落裸字面量）
@@ -1398,10 +1989,10 @@ const CARD_RAIN_FEEL_SCOPE_NOTE =
    结论句 verdict + 带伞建议 + 总降水小指标卡配色/副标题共用。
    不是 RAIN_GRADE_24H（国标 24h 等级），也不是 RAIN_ACCUM_TIERS（累计大小通用档）。 */
 const RAIN24_VERDICT = {
-  DRY_MM:      0.1,  // < 0.1  → 「基本没有有效降雨」；也是"可视为无雨"的下限
-  LIGHT_MM:    1,    // < 1    → 「降雨很弱，不足 1 毫米」；带伞建议与卡配色的下限
-  MODERATE_MM: 10,   // < 10   → 「预计降雨约 X 毫米」
-  HEAVY_MM:    25    // < 25   → 「降雨明显」；≥ 25 → 「雨量较大」
+  DRY_MM:      0.1,  // < 0.1  → 「基本没有有效降水」；也是"可视为无降水"的下限
+  LIGHT_MM:    1,    // < 1    → 「降水量很小，不足 1 毫米」；带伞建议与卡配色的下限
+  MODERATE_MM: 10,   // < 10   → 「预计降水约 X 毫米」
+  HEAVY_MM:    25    // < 25   → 「降水明显」；≥ 25 → 「降水量较大」
 };
 
 /* 【经验值】累计雨量大小的通用档位（mm）——
@@ -1418,6 +2009,48 @@ const RAIN_ACCUM_TIERS = {
 /* 【经验值】带伞建议：概率峰值过半数即建议带伞 */
 const UMBRELLA_PROB_PCT = 50;
 
+/* -------------------- 【自定义】动作取值域表（批 D 2026-09-26）--------------------
+   `computeDecision` 算出来的 `action` 是**机器可读**的那一份结论，下游按它分岔
+   （横幅文案 / 两条阵风提示条）。这里把"每个取值长什么样"定成**一张表**，
+   而不是散在 N 个 `if` 里 —— 同一件事只有一种说法（措辞先进表，再按值取用）。
+
+   取值域与含义（**危险相态必须自成一档**）：
+     umbrella     —— 需要遮挡（雨）
+     no-umbrella  —— 不需要遮挡（不下雨 / 雪：雪要说的是"换防滑的鞋"，不是"躲起来"）
+     shelter      —— **危险，找遮蔽**（冻雨 / 冰雹）
+     unknown      —— 没有依据（一个模型都没给出数据）
+
+   ⚠ 为什么冻雨/冰雹**不能**沿用 `no-umbrella`（用户 2026-09-26 拍板）：
+     `no-umbrella` 的意思是"不用带伞（没事）"，而冻雨/冰雹是"别在外面停留"——
+     **方向相反的两个意思共用一个值**，就是本项目记过的「两条不同的路走到同一个值」：
+     下游任何按 action 判断"要不要提醒用户"的地方，都会把冰雹当成没事。
+     （代价对比：新增一个值是一次性的、可见可测；复用是永久的语义债，而且会复发。）
+   ⚠ 冻雨与冰雹**共用一个 `shelter`**（都是"危险、要躲"），两者的区别由 `headline` 承担 ——
+     下游需要知道的只有"这是不是无关紧要"。
+
+   字段：
+     kind    'cover'（要遮） / 'none'（不用遮） / 'danger'（危险，要躲）
+     icon    横幅图标；`hazard` 由**相态**覆盖（冻雨/冰雹各自一个，比 ⛈️ 更具体）
+     cls     横幅配色；只用既有的 need(蓝) / no(绿) / heavy(红) ——
+             **不新增颜色**：读者已经学过一次"红 = 糟"，再加一个等于让他再学一遍，
+             而收益是零（红已经能表达"严重"）。所以 `shelter` 复用 `heavy` 红。
+     hazard  危险相态的图标覆盖（按 phase 取，见下）
+     banner  kind === 'cover' 时的横幅主句（与 `headline` 分开：横幅说的是"带什么"，
+             headline 说的是"该做什么"）
+     alertGust  kind === 'danger' 时阵风提示条里那半句 —— **不提伞**：
+             人已经在找遮蔽了，再对他说"伞可能被吹翻"等于对着伞说话。 */
+const ACTION_KINDS = {
+  'umbrella':    { kind: 'cover',  icon: '☔',  cls: 'need',  hazard: null,
+                   banner: '建议带伞',       alertGust: '伞可能撑不住，考虑雨衣' },
+  'no-umbrella': { kind: 'none',   icon: '☀️',  cls: 'no',    hazard: null,
+                   banner: '基本不用带伞',   alertGust: '伞可能被吹翻' },
+  'shelter':     { kind: 'danger', icon: '⛈️',  cls: 'heavy',
+                   hazard: { frzr: '🧊', hail: '🧊' },
+                   banner: '找遮蔽处，别在外面停留', alertGust: '尽快进到遮蔽处，别在树下或临时棚架下停' },
+  'unknown':     { kind: 'none',   icon: '☀️',  cls: 'no',    hazard: null,
+                   banner: '基本不用带伞',   alertGust: '伞可能被吹翻' }
+};
+
 /* 【经验值】小时雨强的小指标卡配色与横幅阈值（mm/h）——
    注意与另外两把"小时雨强"尺子区分（量纲相同、语义不同，故意分开）：
      HEAVY_HOUR_MM (2.5)           —— 体感连续段"算不算强"
@@ -1430,7 +2063,7 @@ const STRONG_HOUR_SHOW_MM = 0.5; // 最大小时雨强 ≥ 0.5 → 结论句才�
 const DIVERGE = {
   STRONG_RATIO: 3,    // max/min > 3     → 「分歧较大，把握不高」
   MILD_RATIO:   1.8,  // max/min > 1.8   → 「有一定差距」（没到 3 倍）
-  MIN_MM:       0.1,  // **有有效降雨的门槛**：低于它一律走"没雨可比较"那一支
+  MIN_MM:       0.1,  // **有有效降水的门槛**：低于它一律走"没降水可比较"那一支
                       // （旧注释写的是"max ≥ 0.1mm 才报分歧（雨量太小，几倍差距也无意义）"，
                       //  那把它说成了"分歧判据的附属条件"，于是"三个模型都没雨"漏进了 else 分支 ——
                       //  2026-09-25 用户实测报出：全 0 时结论卡说"这场雨的把握较高"。）
@@ -1458,12 +2091,124 @@ const SNOW = {
   RAIN7_MM:  0.5   // 7 天中位数累计 ≥ 0.5mm 才判断（不下雨谈不上雪）
 };
 
-/* 【经验值】平均风速（wind_speed_10m 峰值）的语言档位（km/h）——
-   与 GUST_LEVELS（阵风档位）不同源：这里是"平均风"峰值，不是阵风。 */
-const WIND_PEAK_TIERS = {
-  STRONG_KMH:   39,  // ≥ 39 → 「风力较强」（renderKpis 与 renderConclusion 共用，文案不同）
-  MODERATE_KMH: 25   // ≥ 25 → 「风力中等偏大」（仅 renderKpis 的副标题）
-};
+/* ============================================================================
+   【国家标准 · 原文级】GB/T 28591—2012《风力等级》—— 批 E（2026-09-26）
+   ----------------------------------------------------------------------------
+   来源等级：**原文级**。用户 2026-09-26 提供了标准全文 PDF，本表逐条抄自
+     ① 表 1「风力等级划分表」（第 3.2 条，m/s 区间）
+     ② 附录 A「风力等级特征及换算表（蒲福风力等级表）」（**资料性附录**，
+        原文注明"资料性附录"）—— `land` 一列逐字抄自该表的「陆地地面物征象」，
+        m/s / km/h / knot 区间也逐字抄自该表。
+   ⚠ **本表的落点是附录 A**（资料性附录，非规范性正文）。所以标注写"附录 A 原文级"，
+     不写"国家标准正文"。这一条是 2026-09-26 用户点名要求如实区分的。
+   ⚠ 它同时**退役**了两处旧东西（原来那两处都是没有出处的经验值）：
+     · `WIND_PEAK_TIERS`（39/25 两个裸门槛）—— 被本表的级数取代；
+     · `WIND_SCORE_STOPS`（0/10/20/30/40）—— 原来只有一句"用 24h 合成风力峰值"，
+       **没有任何依据注释**；现在评分断点=本表的级边界（`scoreLo/scoreHi`，见 `windScoreStopsOf`）。
+   ⚠ 风的**量纲纪律**（本批的核心）：蒲福风级的定义是"标准气象观测场 10 m 高度处的
+     风速"（3.1 条），即**平均风**。所以卡④、评分、副标题、结论**一律读 `windPeak`
+     （`wind_speed_10m` 的窗口峰值，接口本身就是 10 分钟平均风）**；
+     **阵风（`wind_speed_10m` 之外的 `wind_gusts_10m`）另有 GUST_LEVELS 与提示条，
+     绝不拿它去配本表的陆地征象** —— 那是量纲错配（阵风 30 的等效平均风只有 3~4 级）。
+   ⚠ 分数带的形状是**按标准边界标定的**（不是标准内容，也不是随口定的）：
+     标准只给风级与征象，**"多少分算难受"是页面自己的尺子** —— 标定规则只有一条：
+     **每一级的起点分就是该级的 `scoreLo`**，级内线性、边界处接得上（见 `windScoreStopsOf`）。
+     于是"卡片上的级数"与"评分条上的分数"结构上可互相推出：
+     3 级起 20 分｜4 级起 40｜5 级起 60（跨过"挺难受"门槛 60）｜6 级起 80（跨过"能不出门就别出门"）｜
+     7 级起 90｜8 级起 94｜9 级起 100。反证见 `tests/_beaufort-revert.js`。
+   ⚠ 反证要求（用户 2026-09-26 原话）：**"把风速改成 16 → 卡片上的档名 / 级数 / 陆地现象
+     必须跟着变"，不变就断言红** —— 这条要暴露的正是"分数表和文案表打架"。
+     （用户同一句里还提过"风速 16 → 风分 28"：那是按旧表（合成风力）外推的数；
+       换口径之后 **16 km/h 实际落在 29 分**（旧表 40）—— 以实测为准，已写进
+       `tests/scenario-beaufort.js` 的锚点断言，别再照抄 28。）
+     校验锚点（**级边界处的分**，由表直接给出、不是另算）：12 km/h（3 级起点）→ **20**｜
+     20（4 级起点）→ **40**｜**29（5 级起点）→ 60**｜38→74｜39（6 级起点）→ **80**｜
+     50（7 级起点）→ **90**｜62（8 级起点）→ **94**｜75（9 级起点）→ **100**。 */
+const BEAUFORT_LEVELS = [
+  { max:  6,   grade: 1, name: '软风', mps: '0.3~1.5',   kmh: '1~5',     scoreLo:  0, scoreHi:  10,
+    land: '烟能表示风向,但风向标不能动' },
+  { max: 12,   grade: 2, name: '轻风', mps: '1.6~3.3',   kmh: '6~11',    scoreLo: 10, scoreHi:  20,
+    land: '人面感觉有风,树叶微响,风向标能转动' },
+  { max: 20,   grade: 3, name: '微风', mps: '3.4~5.4',   kmh: '12~19',   scoreLo: 20, scoreHi:  40,
+    land: '树叶及微枝摇动不息,旌旗展开' },
+  { max: 29,   grade: 4, name: '和风', mps: '5.5~7.9',   kmh: '20~28',   scoreLo: 40, scoreHi:  60,
+    land: '能吹起地面灰尘和纸张,树枝摇动' },
+  { max: 39,   grade: 5, name: '劲风', mps: '8.0~10.7',  kmh: '29~38',   scoreLo: 60, scoreHi:  75,
+    /* ⚠ 风名以**标准原文**为准：5 级是「劲风」。2026-09-26 用户给的参照里写作「清风」，
+       国标附录 A 写的是「劲风」—— 按纪律以原文为准。 */
+    land: '有叶的小树摇摆,内陆的水面有小波' },
+  { max: 50,   grade: 6, name: '强风', mps: '10.8~13.8', kmh: '39~49',   scoreLo: 80, scoreHi:  88,
+    land: '大树枝摇动,电线呼呼有声,举伞困难' },
+  { max: 62,   grade: 7, name: '疾风', mps: '13.9~17.1', kmh: '50~61',   scoreLo: 90, scoreHi:  94,
+    land: '全树摇动,迎风步行感觉不便' },
+  { max: 75,   grade: 8, name: '大风', mps: '17.2~20.7', kmh: '62~74',   scoreLo: 94, scoreHi: 100,
+    land: '微枝拆毁,人行向前,感觉阻力甚大' },
+  { max: Infinity, grade: 9, name: '烈风', mps: '20.8~24.4', kmh: '75~88', scoreLo: 100, scoreHi: 100,
+    land: '建筑物有小损(烟囱顶部及平屋摇动)' }
+];
+/* ⚠ `max` 用**整数边界**（6/12/20/29/39/50/62/75），不是 m/s 精确换算来的 5.4/11.9/19.9…
+   两个理由：① 标准给出的 km/h 是整数；② 分数锚点要落在"级起点"上（12→20 分、20→40、29→60…），
+   用小数边界会让 20 km/h 落到上一级的尾巴上（实测 40.2 分），与表里写的 40 打架。 */
+/* 只收 1~9 级（0 级"无风"不占档位：0 km/h 会落进 1 级 —— "没风"与"软风"不是同一件事，
+   卡面缺数据那一支另行处理）。表的各档边界由 `beaufortLevel` 补出来，见下。 */
+
+/** 平均风速（km/h）→ 蒲福风级档（**读表** `BEAUFORT_LEVELS`，不另抄阈值）。
+ *  按 GB/T 28591—2012 第 3.1 条：判据是标准气象观测场 10 m 高度处的**风速**（平均风）。
+ *  ⚠ 返回的是**派生对象**：补上这一档的实测边界 `xLo` / `xHi`（由表的 `max` 与上一档的
+ *    `max` 推出）。为什么要它：`levelOf` 的判据是 `x < max`，档与档之间会**留缝**
+ *    （28.9~29 这种小数），而评分锚点必须无缝覆盖整条轴，否则会出现"风速落在缝里 → 分项分 null"。
+ *    补边界而不是把缝隙写进表：边界是**推得出来的**，写两份就等于两处真相。 */
+function beaufortLevel(kmh) {
+  const n = numOrNull(kmh);
+  if (n === null) return null;
+  let prev = 0;
+  for (let i = 0; i < BEAUFORT_LEVELS.length; i++) {
+    const lv = BEAUFORT_LEVELS[i];
+    if (n < lv.max || i === BEAUFORT_LEVELS.length - 1) {
+      return Object.assign({}, lv, { xLo: prev, xHi: lv.max });
+    }
+    prev = lv.max;
+  }
+  return null;
+}
+
+/** 风级档 → 折线锚点表（`scoreLinear` 的入参）。
+ *  形状：`(xLo, scoreLo)` → `(xHi, scoreLo 与 scoreHi 的中点对应值)` → `(xHi, scoreHi)`，
+ *  再接下一档的 `(下一档 xLo, 下一档 scoreLo)` —— 相邻两档在边界处**接得上**（同一横坐标两个 y 相等）。
+ *  为什么锚点用**该档中点**而不是"中点 x 配中点 y"：那样算出来的曲线不会经过 `scoreLo`/`scoreHi`
+ *  这两个既定锚（实测算出 20 km/h → 40.2 分，表里却写着 40），属于"表与实现各说各话"。
+ *  @param {object|null} lv - `beaufortLevel()` 的返回（为 null 时返回 null，由调用方接住）
+ *  @returns {Array<{x:number,y:number}>|null} */
+function windScoreStopsOf(lv) {
+  if (!lv) return null;
+  const span = lv.scoreHi - lv.scoreLo;
+  const midX = (lv.xLo + lv.xHi) / 2;
+  const stops = [{ x: lv.xLo, y: lv.scoreLo }];
+  if (lv.xHi > lv.xLo && span > 0) {
+    /* 让曲线在**中点**处正好取到带的中点分：由 scoreLo 起、斜率 = 该档的总涨幅 ÷ 该档宽度。 */
+    stops.push({ x: midX, y: lv.scoreLo + (midX - lv.xLo) * span / (lv.xHi - lv.xLo) });
+  }
+  stops.push({ x: lv.xHi, y: lv.scoreHi });
+  return stops;
+}
+
+/** 平均风速（km/h）→ 风力影响分（0~100）。**唯一入口**：卡④、评分、副标题都读它。
+ *  ⚠ 以前这里是 `scoreLinear(WIND_SCORE_STOPS, c.windPeak)` —— `windPeak` 是**合成风力**
+ *    （0.6×平均+0.4×阵风），与卡④ 报的阵风、与蒲福风级的定义都不是同一个量。
+ *    批 E 起判据统一成"平均风峰值"。缺数据 → null（显示「—」，不当 0）。
+ *  校验锚点（反证要求写死在这里）：16 km/h → **29 分**（旧表是 40）｜29 → 60｜39 → 80｜75 → 100。 */
+function windScore(kmh) {
+  const n = numOrNull(kmh);
+  if (n === null) return null;
+  /* ⚠ 审计规则⑧ 的形状要求（批 D 踩过一次，这里一次做对）：**取档单独一条赋值、
+     下一行紧接着显式判空**。写成"调用嵌在调用里"（`windScoreStopsOf(beaufortLevel(n))`）
+     会让它既认不出变量名、又看不到判空 → 每个套件都报一条假红。 */
+  const lv = beaufortLevel(n);
+  if (lv === null) return null;
+  const stops = windScoreStopsOf(lv);
+  if (stops === null) return null;
+  return scoreLinear(stops, n);
+}
 
 /* 【经验值】云量（%）→ 天空状况分档（skyText） */
 const CLOUD_TIERS = {
@@ -1529,14 +2274,12 @@ const RAIN_SCORE_STOPS = [
   { x: 16,   y: 100 }
 ];
 
-/* 风力影响：用 24h 合成风力峰值。0 → 0，40 及以上 → 100。 */
-const WIND_SCORE_STOPS = [
-  { x: 0,  y: 0   },
-  { x: 10, y: 25  },
-  { x: 20, y: 50  },
-  { x: 30, y: 75  },
-  { x: 40, y: 100 }
-];
+/* 风力影响：批 E（2026-09-26）起**不再有独立的断点表** ——
+   原来这里是 `WIND_SCORE_STOPS`（0/10/20/30/40，判据是"24h 合成风力峰值"），
+   注释只有一句"用 24h 合成风力峰值。0 → 0，40 及以上 → 100"，**没有任何依据**；
+   而且那个输入量（0.6×平均+0.4×阵风）与卡④ 报的阵风、与蒲福风级的定义都不是同一个量。
+   现在评分走 `windScore(kmh)`：锚点从 `BEAUFORT_LEVELS` 各档的 `scoreLo/scoreHi` **派生**
+   （见 `windScoreStopsOf`），一张表同时管卡面级数与分项分。 */
 
 /* 温度不适（气温，℃）：20~26 舒适（0 分），偏离越远越高。
    用 24h 的**最低温**算冷端、**最高温**算热端，取两者较大者 ——
@@ -1607,7 +2350,7 @@ const SCORE_TIERS = {
    这里 label 只用简称（降雨 / 风 / 温度 / 能见度），与评分行的「降雨不适 / 风力影响…」不同，
    因为权重说明说的是"给哪个要素多少权重"，不是"哪项不适"。 */
 const SCORE_DIMS = [
-  { key: 'RAIN', label: '降雨' },
+  { key: 'RAIN', label: '降水' },
   { key: 'WIND', label: '风'   },
   { key: 'TEMP', label: '温度' },
   { key: 'VIS',  label: '能见度' }
@@ -1808,7 +2551,7 @@ const CARD5_SCOPE_NOTE = '本卡只统计 3 个确定性模型，与概率 / 区
    把上面那句挂上去会变成"一边说 43/51 个集合成员有雨、一边说本卡只统计 3 个确定性模型"——
    常量挂在了它描述的那张卡的**对面**。
    所以概率卡要用这句**方向相反**的说明：我来自集合，与那 3 个模型的口径不同源。 */
-const PROB48_SCOPE_NOTE = '概率取自集合成员，与「降雨是否一致」的确定性模型口径不同源';
+const PROB48_SCOPE_NOTE = '概率取自集合成员，与「降水是否一致」的确定性模型口径不同源';
 
 /* 「往后几天呢？」组的口径提示（用户 2026-09-24 指定的原文）。
    集合的 P90 是**成员预报里的偏多情形**，不是真实世界的上限；
@@ -1865,6 +2608,48 @@ function gustLevel(v)     { return levelOf(GUST_LEVELS, v); }
 /* 阶段二·体感体系新增的两张尺子（表在文件上方，这里只是取表函数） */
 function rainFeelLevel(mmh) { return levelOf(RAIN_FEEL_LEVELS, mmh); }
 function visLevel(m)        { return levelOf(VIS_LEVELS, m); }
+
+/** 24h 融水当量（mm）→ 降雪档（**读表** `SNOW_FEEL_LEVELS`，不另抄阈值）。
+ *  ⚠ 这一层的守卫是必需的，不是客套：国标把微量降雪写成"小于 0.1 毫米"，
+ *    而 `levelOf` 的判据是 `x < max` —— 表首档是 `0.1`，于是 **0 会被判成"微量降雪"**，
+ *    与"完全没下雪"混成同一档（本项目"两条路走到同一个值"那条老坑）。
+ *    所以：`x <= 0` → `null` = 无雪；`null` 缺失 → `null` = 判不出。
+ *    两者在文案层**必须分开**（无雪说"没下雪"，缺失显示「—」），不能糊成一个出口。 */
+function snowFeelLevel(mm) {
+  const n = numOrNull(mm);
+  if (n === null || n <= 0) return null;   // 缺失 / = 0（无雪，不进档）
+  return levelOf(SNOW_FEEL_LEVELS, n);
+}
+
+/** 这个**窗口相态**能不能拿去查降雪档表（批 D 2026-09-26）。
+ *
+ *  三个条件缺一不可，全部是"这个量到底有没有值 / 该不该用这张表"的问题：
+ *    ① 有相态对象；② 相态**是雪**；③ 24h 融水当量**有值**；
+ *    ④ 不是危险相态（冻雨 / 冰雹）—— 它们有自己的一套说法，
+ *       套国标降雪档是量纲错配（冻雨分级靠积冰厚度、冰雹靠冰雹直径，Open-Meteo 都不提供）。
+ *
+ *  抽成函数而不是把条件散在调用点：调用点因此可以写成
+ *  `snowFeelOk(ph) ? snowFeelLevel(ph.precip24Mm) : null` —— **判空与取档在同一行**，
+ *  审计规则⑧ 的语句级标记（只扫到本行第一个分号为止）才看得到这次判空。
+ *  （跨行三元式会把判空留在上一条语句里，规则⑧ 实测会误报，见 coreCards 里的说明。）
+ *  @param {object|null} ph - `ctx.model.phase`
+ *  @returns {boolean}
+ */
+function snowFeelOk(ph) {
+  if (!ph || ph.phase !== 'snow') return false;
+  if (ph.phase === 'frzr' || ph.phase === 'hail') return false;
+  return numOrNull(ph.precip24Mm) !== null;
+}
+
+/** 24h 融水当量（mm）→ 积雪状况文案（对应 `wetRiskText` 在雨那边的位置）。
+ *  与 `snowFeelLevel` **同一次判据**：先取档、再读该档的 `slip` ——
+ *  所以本函数里**没有任何阈值**（用户 2026-09-26 硬约束：有阈值就是第二张表）。
+ *  判据为 0 或缺失时返回 `null`（调用方不输出这句，绝不用 0 顶替）。 */
+function snowSlipText(mm) {
+  const lv = snowFeelLevel(mm);
+  if (lv === null) return null;
+  return lv.slip;
+}
 
 /** 某个 WMO 代码在这张卡里算不算"天气现象"（见 PHENOMENON_EXTRA_CODES 的说明） */
 function isPhenomenon(code) {
@@ -1981,7 +2766,10 @@ function computeScores(comfort, prefs) {
   const p = prefs || {};
 
   const rain = scoreLinear(RAIN_SCORE_STOPS, c.effRainPeak);
-  const wind = scoreLinear(WIND_SCORE_STOPS, c.windPeak);
+  /* 批 E（2026-09-26）：风这一维的判据从**合成风力**（0.6×平均+0.4×阵风）换成
+     **平均风峰值** —— 与卡④ 报的风级、与 GB/T 28591—2012 对蒲福风级的定义同源。
+     换口径同时补依据：断点不再是那张没有出处的 0/10/20/30/40，而是风级表各档的分数带。 */
+  const wind = windScore(c.windAvgPeak);
   const temp = (c.tempMin === null && c.tempMax === null) ? null
     : Math.max(scoreLinear(TEMP_SCORE_STOPS, c.tempMin),
                scoreLinear(TEMP_SCORE_STOPS, c.tempMax));
@@ -1999,7 +2787,7 @@ function computeScores(comfort, prefs) {
   const FULL_W = SCORE_WEIGHTS.RAIN + SCORE_WEIGHTS.WIND + SCORE_WEIGHTS.TEMP + SCORE_WEIGHTS.VIS;
   const missing = [];
   let coveredW = 0;
-  if (rain !== null) coveredW += SCORE_WEIGHTS.RAIN; else missing.push('降雨');
+  if (rain !== null) coveredW += SCORE_WEIGHTS.RAIN; else missing.push('降水');
   if (wind !== null) coveredW += SCORE_WEIGHTS.WIND; else missing.push('风力');
   if (temp !== null) coveredW += SCORE_WEIGHTS.TEMP; else missing.push('温度');
   if (vis  !== null) coveredW += SCORE_WEIGHTS.VIS;  else missing.push('能见度');
@@ -2495,7 +3283,15 @@ function urlForecast(lat, lon) {
        在多模型（ecmwf_ifs025,gfs_seamless,icon_seamless）下到底哪些真实存在、
        哪些被接口忽略。已确认结果见下面的字段对照表，确认后再进入第 2 步。 */
     hourly:        'precipitation_probability,precipitation,temperature_2m,cloud_cover,wind_speed_10m,'
-                 + 'weather_code,apparent_temperature,wind_gusts_10m,visibility,rain,showers',
+                 + 'weather_code,apparent_temperature,wind_gusts_10m,visibility,rain,showers,'
+                 /* 批 A（2026-09-26）新增两个降雪要素：
+                    · `snowfall`   —— **雪的深度增量（新雪）**，接口单位 **cm**；
+                    · `snow_depth` —— **地表已有积雪深度（状态快照）**，接口单位 **m**。
+                    ⚠ 二者与 `precipitation`（mm，融水当量、已含雪）是**三个不同的量**，不可互替、不可相加。
+                    ⚠ 可用性实测（HANDOFF 8.3.1）：三家都有字段，但"有真值"逐点逐模型不同；
+                      `snowfall` 的 0 **无法与"这家没给"区分**（字段 nonNull=72），
+                      所以一律 `numOrNull` 处理，缺了显示「—」，且**不许靠 >0 判有没有雪**。 */
+                 + 'snowfall,snow_depth',
     models:        MODELS.join(','),
     timezone:      'auto',   // ③（2026-09-25）：跟地点走，不再写死北京时间
     forecast_days: 3
@@ -3209,7 +4005,14 @@ function buildContext(forecast, ensemble) {
       wind_gusts_10m:            seriesOf(fHourly, 'wind_gusts_10m', m),
       visibility:                seriesOf(fHourly, 'visibility', m),
       rain:                      seriesOf(fHourly, 'rain', m),
-      showers:                   seriesOf(fHourly, 'showers', m)
+      showers:                   seriesOf(fHourly, 'showers', m),
+
+      /* —— 批 A（2026-09-26）：两个降雪要素 ——
+         ⚠ 请求参数里加了**不等于**这里就有：漏了这两个映射时 `ms.snowfall` 是 undefined，
+         `sumSnowfallCm` 一律返回 null —— 现象是"相态永远判不出雪"（麦克默多就栽在这）。
+         单位：`snowfall` = cm（雪的深度增量）、`snow_depth` = m（地表已有雪深，状态量）。 */
+      snowfall:                  seriesOf(fHourly, 'snowfall', m),
+      snow_depth:                seriesOf(fHourly, 'snow_depth', m)
     };
   });
 
@@ -3739,6 +4542,12 @@ function computeComfort(ctx) {
      所以这里单独记一个 effRainPeakIndex，卡片上按它报时刻。 */
   const speedArr = averageAcrossModels(models, modelSeries, 'wind_speed_10m');
   let windPeak = null;
+  /* 批 E（2026-09-26）：`windAvgPeak` = 窗口内**平均风速**峰值（km/h）。
+     它就是蒲福风级的判据量（GB/T 28591—2012 3.1 条：10 m 高度处的风速），
+     也是批 E 之后卡④ / 评分 / 副标题 / 结论**唯一**的风判据。
+     ⚠ 与 `windPeak`（合成风力 0.6×平均+0.4×阵风）**不是同一个量**：后者只服务
+       "风把雨吹斜"那条耦合（`effectiveRainIntensity`），不再参与任何分级与打分。 */
+  let windAvgPeak = null;
   let effRainPeak = null, effRainPeakIdx = null;
   for (let k = 0; k < WIN; k++) {
     const idx = fStart + k;
@@ -3747,6 +4556,7 @@ function computeComfort(ctx) {
     const pr = numOrNull(precArr && precArr[idx]);
     const wIdx = windCombine(sp, gu);
     if (wIdx !== null && (windPeak === null || wIdx > windPeak)) windPeak = wIdx;
+    if (sp !== null && (windAvgPeak === null || sp > windAvgPeak)) windAvgPeak = sp;
     const eff = effectiveRainIntensity(pr, wIdx);
     if (eff !== null && (effRainPeak === null || eff > effRainPeak)) {
       effRainPeak = eff; effRainPeakIdx = idx;
@@ -3772,6 +4582,7 @@ function computeComfort(ctx) {
     wc, wcInfo: wc.code !== null ? wmoInfo(wc.code) : null,
     hourPeak, hourPeakIndex: hourPeak === null ? null : hourPeakIdx,
     windPeak,
+    windAvgPeak, windAvgLv: beaufortLevel(windAvgPeak),
     effRainPeak, effRainPeakIndex: effRainPeak === null ? null : effRainPeakIdx,
     gustPeak, gustLv: gustLevel(gustPeak),
     visMin, visLv: visLevel(visMin), visSource: visMin !== null ? visSrc : null,
@@ -3931,9 +4742,12 @@ function computeAlerts(comfort, prefs, decision) {
         /* ⚠ 2026-09-25：与通用 gust 条同步 —— 也带上 GUST_LEVELS 的档名，
            否则同一张提示条上两条"阵风 X km/h"格式不同（一条有档名、一条没有）。 */
         const lv = gustLevel(cc.gustPeak);
+        /* 与通用 gust 条同一处分岔（同一矛盾的另一个出口）—— 批 D 起同样读 ACTION_KINDS：
+           带伞时说"考虑雨衣"；危险相态（冻雨/冰雹）**不提伞**，改为提醒进遮蔽处。 */
+        const akB = (d && ACTION_KINDS[d.action]) ? ACTION_KINDS[d.action] : null;
         const blow = numOrNull(cc.gustPeak) !== null && cc.gustPeak > ALERT_THRESHOLD.GUST_KMH
-          /* 与通用 gust 条同一处分岔（同一矛盾的另一个出口）：带伞时说"考虑雨衣"。 */
-          ? (d && d.action === 'umbrella' ? '，伞可能撑不住，考虑雨衣' : '，伞可能被吹翻')
+          ? (akB && akB.kind === 'cover' ? '，伞可能撑不住，考虑雨衣'
+            : (akB && akB.kind === 'danger' ? '，' + akB.alertGust : '，伞可能被吹翻'))
           : '';
         return (lv ? `${lv.name}，` : '') + `阵风 ${g} km/h，骑车 / 电动车注意侧风${blow}`;
       }
@@ -3951,6 +4765,197 @@ function computeAlerts(comfort, prefs, decision) {
 /** "ECMWF" 这样的展示名；未知键回退成键本身 */
 function modelName(key) {
   return (MODEL_META[key] || {}).name || key || '—';
+}
+
+/** 相态 → 人话（只说"是什么"，不说"多严重"） */
+function phaseWord(p) {
+  return p === 'snow' ? '雪' : p === 'frzr' ? '冻雨' : p === 'hail' ? '冰雹' : p === 'rain' ? '雨' : '—';
+}
+
+/**
+ * 积雪深度的**主值文本**（批 C 2026-09-26 新增「积雪深度」卡）。
+ *
+ * 取值口径：只认**通过冻结常量规则**的那些模型（`depthValidM`，见 `chooseWindowPhase`），
+ * 也就是把"整段不变的非零值"（格陵兰实测：ECMWF 恒 20.35 / ICON 恒 40.00）**剔除**后的值。
+ * 三家全被剔除 → `null`（卡上显示「—」，foot 里如实列出三份原始值，并说明为什么不用）。
+ * @param {object} ph - `ctx.model.phase`
+ * @returns {{value: string, unit: string, model: string|null}}
+ */
+function snowDepthText(ph) {
+  if (!ph) return { value: '—', unit: '', model: null };
+  const depthM = (ph.depthM === null || ph.depthM === undefined) ? null : ph.depthM;
+  if (depthM === null) return { value: '—', unit: '', model: null };
+  return { value: fmtSnowDepth(depthM), unit: '', model: ph.depthModel || null };
+}
+
+/**
+ * 积雪深度卡的 foot（批 C）：**三家原始值并列 + 说明为什么不用某些值**。
+ *
+ * 用户 2026-09-26 的选择：主值走"通过规则的来源"，但**分歧必须如实暴露** ——
+ * 27 倍分歧下出任何单一数都是编，标注不是免罪符。
+ * 规则（`chooseWindowPhase` 的 `depthSuspect`）：整段恒为**同一个非零值** → 疑似填充值，不作主值。
+ * ⚠ 恒为 **0** 不算可疑（某地确实无雪时三家都是 0，那是真值）。
+ * @param {object} ph - `ctx.model.phase`
+ * @returns {string} 形如 `三家读数：ECMWF 20.4 米（整段不变，已剔除）｜ GFS 1.5 米 ｜ ICON 40.0 米（整段不变，已剔除）`
+ */
+function snowDepthNoteOf(ph) {
+  if (!ph || !ph.depthSamples) return '';
+  const keys = Object.keys(ph.depthSamples);
+  if (!keys.length) return '';
+  const suspect = ph.depthSuspect || {};
+  const parts = keys.map(m => {
+    const txt = fmtSnowDepth(ph.depthSamples[m]);
+    return `${modelName(m)} ${txt}${suspect[m] ? '（整段不变，已剔除）' : ''}`;
+  });
+  const anySuspect = keys.some(m => suspect[m]);
+  const head = anySuspect ? '三家读数' : '读数';
+  const tail = anySuspect
+    ? '　·　整段不变的值不是预报场（疑为填充值），故不作主值'
+    : '';
+  return `${head}：${parts.join(' ｜ ')}${tail}`;
+}
+
+/**
+ * 雪天卡② foot 的**读数句**（批 C 2026-09-26 用户点名：判据量与显示量必须各自标名、分开放）。
+ *
+ * 两个量分开、各自带名，**绝不并排**（用户原话）：
+ *   · `snowCm`（`snowfall` 累计，**新雪增量**）→ 「预计还会积雪约 X 厘米」
+ *   · `depthM`（`snow_depth`，**地表状态量**）→ 「地上已有 X 厘米（非今日新增 · 含常年积雪）」
+ * 为什么不能并排：读者会拿自己看得见的 `snowfall` 去查国标降雪量等级，
+ * 算出与页面不同的档（国标判据是 `precipitation` 的融水当量 mm）。
+ *
+ * `depthM` 现在只取**通过冻结常量规则的**有效家（批 C），若三家全被剔除则**不显示这个数**
+ * （页面显示「—」的那一侧交给 L2 的「积雪深度」卡，那里会列出三份原始值）。
+ * @param {object} ph - `ctx.model.phase`
+ * @returns {string} 形如 `预计还会积雪约 0.4 厘米　·　地上已有 82 厘米（非今日新增 · 含常年积雪，来自 ICON）`
+ */
+function snowStatsPhrase(ph) {
+  if (!ph) return '';
+  const snowCm = (ph.snowCm === null || ph.snowCm === undefined) ? null : ph.snowCm;
+  const depthM = (ph.depthM === null || ph.depthM === undefined) ? null : ph.depthM;
+  const out = [];
+  /* ⚠ 三种状态必须分开（项目铁律，2026-09-26 批 C 自己踩到过一次）：
+       `null`（接口没给值）→ 「—」；`0`（接口明确报 0）→ 如实说"无"；`> 0` → 报数。 */
+  if (snowCm === null) out.push('新增积雪：—');
+  else if (snowCm > 0) out.push(`预计还会积雪约 ${fmtSnowfall(snowCm)}`);
+  else out.push('无新增积雪');
+  if (depthM === null) out.push('地上已有：—（积雪深度读数不可用）');
+  else if (depthM > 0) {
+    const who = ph.depthModel ? `，来自 ${modelName(ph.depthModel)}` : '';
+    out.push(`地上已有 ${fmtSnowDepth(depthM)}（非今日新增 · 含常年积雪${who}）`);
+  } else out.push('地上无积雪');
+  return out.join('　·　');
+}
+
+/**
+ * 雪天的**静态口径 / 说明句**（批 C 2026-09-26 用户点名：口径下沉到 `foot`）。
+ *
+ * 为什么下沉：用户清单第 7 条（本项目的老纪律）——**静态口径不许挂在动态数字下面**。
+ * 朗伊尔城实测就是这一条的反面教材：体感句里先写「代码报的是雨…实际很可能在下雪」（动态推断），
+ * 紧接着又写「窗口里雨雪混着，档位按含雨的降水量算」（静态口径），两句话挤在一句里
+ * 读着像重复，而且读者分不清哪句是这一次的结论、哪句是长期口径。
+ *
+ * ⚠ 与"按气温推断"那句的分工：**推断标记留在句内**（它直接修饰这一次的结论），
+ *   本函数只出"长期成立"的口径。
+ * @param {object|null} ph - `ctx.model.phase`
+ * @returns {string} 形如 `档位按降水量的融水当量算，混合相态时可能偏大一格`；无内容时返回空串
+ */
+function snowScopeNote(ph) {
+  if (!ph) return '';
+  /* 判据口径**每次都要说**（用户点名：卡上只显示一个数时，必须是判据那个数；
+     不说口径，读者拿自己看得见的 `snowfall` 去查国标就会算出别的档）。 */
+  const notes = ['档位按降水量的融水当量（24 小时累计）分级'];
+  if (ph.mixed) {
+    /* 官方原话："降雪量仅包括固态降雪，不包含雨或雨夹雪的部分" —— 而本页判据是
+       `precipitation`（含雨）→ 混合相态时档位**系统性偏大一格**（HANDOFF 8.11.1）。 */
+    notes[0] = '档位按降水量的融水当量（24 小时累计）分级，雨雪混着时会偏大一格';
+  }
+  if (ph.depthSuspect && Object.keys(ph.depthSuspect).some(k => ph.depthSuspect[k])) {
+    notes.push('积雪深度有模型返回整段不变的值，已按填充值剔除');
+  }
+  return notes.join('　·　');
+}
+
+/**
+ * L0 依据行的**相态来源句**（批 C 2026-09-26 用户点名新增）。
+ *
+ * 由来：原来写 `${rainCount}/${avail} 模型预测有雪` —— 两处都不对：
+ *   ① **不解释结论**：季克西是「ECMWF 报雨 + ICON 报雪」跨模型合成出"雪"，
+ *      写"1/3 模型预测有雪"读者看不出为什么最终说小雪（`rainCount` 数的是"48h 累计 > 门槛"，
+ *      与相态判定不是同一件事）；
+ *   ② **与来源标注打架**：同一屏的卡② 还写着"3/3 个模型有值"。
+ * 现在如实说：**谁报了什么 → 最终取哪个 → 覆盖几个模型**。
+ *
+ * @param {object|null} ph - `computeWindowPhase` 的产物（要 `votesByModel` / `phase`）
+ * @param {number} avail - 可用模型数（`unc.avail`）
+ * @param {object} ctx - 运行上下文（`models` 顺序决定列出顺序）
+ * @returns {string} 形如 `相态：ICON 报雪、ECMWF 报雨 → 取雪（3/3 个模型有值）`；
+ *                   全都没报降水（或相态判不出）时退回一句不撒谎的说明
+ */
+function phaseSourcePhrase(ph, avail, ctx) {
+  const models = (ctx && ctx.models) || [];
+  const votes = (ph && ph.votesByModel) || {};
+  /* 列出的顺序 = `MODELS` 顺序（也就是页面上固定的 ECMWF / GFS / ICON 顺序） */
+  const parts = [];
+  models.forEach(m => {
+    const v = votes[m];
+    if (!v) return;
+    /* 同一家可能既报过雨又报过雪（窗口里相态变了）→ 按票数排序，多的在前，
+       用"兼"连接，如实反映窗口内的混合 */
+    const kinds = Object.keys(v).sort((a, b) => v[b] - v[a]);
+    parts.push(`${modelName(m)} 报${kinds.map(phaseWord).join('兼')}`);
+  });
+  /* "其余 N 家报无降水" 的 N **由 `chooseWindowPhase` 一次算齐**（`dryModels`）——
+     原来在这里拿"没有票的模型数"当 N：手工构造的 ctx 里三家都没票，
+     于是输出「其余 3 家报无降水」，而同一句还写着「3/3 个模型有值」，自相矛盾。 */
+  const dryN = (ph && Array.isArray(ph.dryModels)) ? ph.dryModels.length : 0;
+  const tail = dryN > 0 ? `，其余 ${dryN} 家报无降水` : '';
+  const cover = `（${avail}/${models.length || avail} 个模型有值）`;
+  /* 兜底：票数为空（手工构造 ctx / 相态判不出），但确实有模型报了降水 →
+     如实说"有哪几家报了降水"，**不写"模型没给出可用信号"**（那是另一件事）。 */
+  if (!parts.length) {
+    const wetTxt = ((ph && ph.wetModels) || []).map(modelName).join('、');
+    if (wetTxt) return `相态：${wetTxt} 报有降水${tail}${cover}`;
+    return '相态：模型没给出可用信号';
+  }
+  const picked = ph && ph.phase ? ` → 取${phaseWord(ph.phase)}` : '';
+  return `相态：${parts.join('、')}${tail}${picked}${cover}`;
+}
+
+/**
+ * 降雪量级的来源标注（批 B 2026-09-26，用户 T1 三条约束）。
+ *
+ * 口径**定义死**（"报雪的那一家"不是一个含糊说法）：
+ *   `source` = `chooseWindowPhase` 里那个 `snowModel` —— 即「窗口内 `snowfall` 累计**最大**的一家」
+ *   （有并列时取 `MODELS` 顺序里靠前的那家）；该模型没有 `snowfall` 序列时，
+ *   退到主源 `FIELD_POLICY.WEATHER_CODE_SOURCE`（与 `phase.snowfallSource` 同一口径）。
+ * ⚠ **不是"唯一报雪的那家"**：三家各报各的量时，"唯一"没有定义（可能两家都报），
+ *   而"最大那家"永远良定义、且与页面上 `snowCm`（会积多厚）同一个来源 —— 判的量与报的量同源。
+ *
+ * 覆盖率口径照抄能见度卡那行（`fieldCoverage`，判据是"窗口内有值"，
+ * **含显式的 0**）："某家没给值" ≠ "某家报了 0" —— 前者不计入分母的分子，
+ * 后者是真实读数。所以这里才要按模型逐个查序列，而不是拿"模型数"当分母。
+ *
+ * @param {object} phase - `ctx.model.phase`（computeWindowPhase 的产物）
+ * @param {object} ctx - 运行上下文（要 `fStart` / `fHours` / `models` / `modelSeries`）
+ * @returns {string} 形如 `降雪档位按「GFS」的读数（1/3 个模型有值）`；拿不到来源时返回空串
+ */
+function snowSourceNoteOf(phase, ctx) {
+  if (!phase || !ctx) return '';
+  const src = phase.precipSourceModel || phase.snowfallSource || null;
+  if (!src) return '';
+  /* 窗口固定 24 —— 与 `chooseWindowPhase` 里算 `precip24Mm` 的那个 WIN 逐字一致
+     （写 `ctx.fHours` 会得出另一个窗口，就是"两份真相"的又一次复发）。 */
+  const cover = fieldCoverage(ctx, 'precipitation', ctx.fStart, 24);
+  /* ⚠ 判据量与"报雪那家"不是同一家时必须说清（`chooseWindowPhase` 的降级支）：
+     报雪那家**没有降水序列**（缺值 ≠ 0）→ 档位读的是另一家的降水量 ——
+     这正是用户 T1 第三条要防的"某家没值被当成某家没报雪"。 */
+  const snowModel = phase.snowfallSource || null;
+  if (snowModel !== null && snowModel !== src) {
+    return `降雪档位按「${modelName(src)}」的读数（${cover.keys.length}/${cover.total} 个模型有值）` +
+           `　·　${modelName(snowModel)} 没有降水读数`;
+  }
+  return `降雪档位按「${modelName(src)}」的读数（${cover.keys.length}/${cover.total} 个模型有值）`;
 }
 
 /**
@@ -3995,7 +5000,42 @@ function computeDecision(ctx, unc, comfort, prefs) {
 
   /* ---- 动作 + 把握 + 一句话 ---- */
   let action, confidence, headline, cls;
-  if (avail === 0) {
+  /* 批 A（2026-09-26）：相态分支排在降雨判据**之前**。
+     它是降雨判据的**子集**：`rainCount === 0` 仍然先判"都认为不下雨"，
+     相态只在"确实有降水"时才可能非 rain —— 所以这次插入不会改变任何雨场景的行为。
+     ⚠ 本分支**只改写 `headline` 措辞，不动 `action` / `confidence`**：
+       那两个字段有下游消费者与测试断言；雪天确实不该用"带伞"，
+       但把它们跟着改属批 B（雪的建议那套）—— 批 A 的边界是"雪天不说雨"。 */
+  const ph = (comfort && comfort.phase) ? comfort.phase : null;
+  if (avail > 0 && ph && ph.phase === 'snow') {
+    action = 'no-umbrella'; confidence = 'high';
+    /* 批 B（2026-09-26，用户 T4 拍板）：`action` / `confidence` 的**取值域一个字不动**
+       （下游有 switch 与 9 条断言），雪天要说的话落在 `headline` 与下面的横幅文案上。
+       动作句按"积雪到什么程度"分岔 —— 判据只有一个：**24h 融水当量的档位**
+       （`snowFeelLevel`），不再另设阈值。 */
+    const snowLv = snowFeelLevel(ph.precip24Mm);
+    /* 显式判空（审计规则⑧：调用会返回 null 的函数，调用点必须接住）——
+       雪量小到无档或数据缺失时，退回"有降雪"这句不含量级的说法。 */
+    if (snowLv !== null) {
+      headline = snowLv.name === '微量降雪'
+        ? '有零星小雪，路面可能有点雪'
+        : `有${snowLv.name}，出门换防滑的鞋`;
+    } else {
+      headline = '有降雪，路面可能有积雪';
+    }
+    cls = 'adv-warn';
+  } else if (avail > 0 && ph && ph.phase === 'frzr') {
+    /* 批 D（2026-09-26 用户拍板 B）：动作值从 `no-umbrella` 改成 `shelter` ——
+       "不用带伞（没事）"与"落地结冰（危险）"方向相反，不能共用一个值。 */
+    action = 'shelter'; confidence = 'high';
+    headline = '有冻雨，落地就结冰，尽量别出门';
+    cls = 'adv-danger';
+  } else if (avail > 0 && ph && ph.phase === 'hail') {
+    /* 批 D：同上 —— 冰雹是"找遮蔽"，不是"不用带伞"（本条是本批的主需求）。 */
+    action = 'shelter'; confidence = 'high';
+    headline = '有冰雹，找地方躲，别在外面停留';
+    cls = 'adv-danger';
+  } else if (avail === 0) {
     action = 'unknown'; confidence = 'none';
     headline = '模型数据不可用，无法给出建议'; cls = 'adv-none';
   } else if (rainCount === 0) {
@@ -4006,7 +5046,7 @@ function computeDecision(ctx, unc, comfort, prefs) {
     headline = '建议带伞，量级基本确定'; cls = 'adv-ok';
   } else if (allRain) {
     action = 'umbrella'; confidence = 'mid';
-    headline = '建议带伞，但雨量不确定'; cls = 'adv-warn';
+    headline = '建议带伞，但降水量不确定'; cls = 'adv-warn';
     /* ⑤/⑪（2026-09-25，规则⑪ 上线后报出）：peakProb / total24 都可能是 null（缺数据），
        而 `null > 正数` 恰好是 false —— 靠巧合会静默走 else 分支。显式判空。 */
   } else if ((peakProb !== null && peakProb > UMBRELLA_PROB_PCT) ||
@@ -4018,17 +5058,66 @@ function computeDecision(ctx, unc, comfort, prefs) {
     headline = '模型意见不一，暂不用带伞，临近看雷达'; cls = 'adv-warn';
   }
 
-  /* ---- 带伞横幅（结论卡；动作 + 短时强降水追加） ---- */
+  /* ---- 带伞横幅（结论卡；动作 + 短时强降水追加） ----
+     批 D（2026-09-26）：横幅的三个外观量**统一从 `ACTION_KINDS` 取**（不再各写一个 if）——
+     原来它们是 `action === 'umbrella' ? A : B` 的二值写法，`shelter` 一出现就会落进 B，
+     于是冰雹天横幅写着「☀️ 基本不用带伞」。 */
+  const AK = ACTION_KINDS[action] || ACTION_KINDS['unknown'];
   const heavyRain = maxIntensity > INTENSITY_DANGER_MM;
-  let umbrellaText = action === 'umbrella' ? '建议带伞' : '基本不用带伞';
+  let umbrellaText = AK.banner;
   if (heavyRain) umbrellaText += '，可能有短时强降水，注意';
-  const umbrellaCls  = heavyRain ? 'heavy' : (action === 'umbrella' ? 'need' : 'no');
-  const umbrellaIcon = heavyRain ? '⚠️' : (action === 'umbrella' ? '☔' : '☀️');
+  let umbrellaCls  = heavyRain ? 'heavy' : AK.cls;
+  let umbrellaIcon = heavyRain ? '⚠️' : AK.icon;
+  /* 危险相态（冻雨/冰雹）的图标按**相态**再具体一格（🧊）——撞上短时强降水时仍让位给 ⚠️。 */
+  if (!heavyRain && AK.hazard && ph && AK.hazard[ph.phase]) umbrellaIcon = AK.hazard[ph.phase];
   const umbrellaReasons = [];
   if (peakProb !== null && peakProb > UMBRELLA_PROB_PCT) umbrellaReasons.push(`概率峰值 ${fmtProb5(peakProb)}%`);
-  if (total24 !== null && total24 > RAIN24_VERDICT.LIGHT_MM) umbrellaReasons.push(`累计雨量 ${fmtAccum(total24)} 毫米`);
-  if (heavyRain) umbrellaReasons.push(`最大雨强 ${fmt(maxIntensity, PRECISION.HOUR_MM)} 毫米/小时`);
-  const umbrellaNote = umbrellaReasons.length ? umbrellaReasons.join(' ｜ ') : '未来 24 小时无明显降水信号';
+  if (total24 !== null && total24 > RAIN24_VERDICT.LIGHT_MM) umbrellaReasons.push(`累计降水量 ${fmtAccum(total24)} 毫米`);
+  if (heavyRain) umbrellaReasons.push(`最大降水强度 ${fmt(maxIntensity, PRECISION.HOUR_MM)} 毫米/小时`);
+  /* 批 B（2026-09-26）：雪天横幅按相态分岔 —— 动作取值域不动（T4），
+     但"基本不用带伞 ☀️ + 未来 24 小时无明显降水信号"在雪天是**三处自相矛盾**：
+     顶上刚说"换防滑的鞋"、中间是晴天图标、底下又说没有降水信号。
+     判据仍是同一个 `snowFeelLevel(ph.precip24Mm)`（不新造阈值）。 */
+  const isSnowBanner = !!(ph && ph.phase === 'snow');
+  /* 显式判空（审计规则⑧）：相态不是雪、或 24h 融水当量缺失时**完全不用这个档**
+     （`snow*` 两个出口都按 `null` 走"数据不足"那一支，绝不让 undefined 参与比较）。 */
+  const snowBannerLv = snowFeelLevel(
+    (isSnowBanner && ph.precip24Mm !== null) ? ph.precip24Mm : null);
+  let umbrellaNote;
+  if (isSnowBanner && AK.kind === 'none') {
+    /* 雪天的口径句是"降雪量级按 24 小时融水当量…"，与"为什么建议带伞"那三条**无关**，
+       所以整段换掉。批 D 起判据是 `AK.kind === 'none'`（不是"随便一个非伞动作"）——
+       `shelter` 也是"不带伞"，但它的横幅口径绝不能挂上"未来 24 小时无明显降水信号"。
+       显式判空（审计规则⑧）：`snowBannerLv` 可能是 null，用三元式给出兜底文案。 */
+    umbrellaText = snowBannerLv
+      ? `降雪：${snowBannerLv.name}，路面有雪`
+      : '有降雪，注意路面积雪';
+    umbrellaReasons.length = 0;
+    umbrellaReasons.push(snowBannerLv
+      ? `降雪量级按 24 小时融水当量：${snowBannerLv.name}`
+      : '降雪量级：24 小时融水当量数据不足');
+    const snowSrcNote = snowSourceNoteOf(ph, ctx);
+    if (snowSrcNote) umbrellaReasons.push(snowSrcNote);
+    if (ph.codeButDry && ph.snowfallSource) {
+      /* 批 C：原来写「降水编码说**无雪**」—— 编码说的是"无降水"，
+         "无雪"是页面替它下的结论（半真半假的转述）。改成如实引述。 */
+      umbrellaReasons.push(`降水编码说无降水，但 ${modelName(ph.snowfallSource)} 报有雪`);
+    }
+    umbrellaNote = umbrellaReasons.join(' ｜ ');
+  } else if (AK.kind === 'danger') {
+    /* 批 D：危险相态不写"为什么建议带伞"那三条，也**不许**落进下面那句
+       "未来 24 小时无明显降水信号"—— 冻雨/冰雹本身就是降水，那句是假话。
+       横幅主句（"找遮蔽处，别在外面停留"）已经说清了该做什么，这里按空串渲染。 */
+    umbrellaNote = '';
+  } else {
+    umbrellaNote = umbrellaReasons.length ? umbrellaReasons.join(' ｜ ') : '未来 24 小时无明显降水信号';
+  }
+  /* 批 B：雪天把图标与配色也换掉 —— 否则「☀️ 降雪：中雪」这种同屏矛盾。
+     ⚠ `umbrellaCls` 只在非雪天才吃 heavyRain，雪天一律 'warn'（雪是提醒级，不是"带伞"级）。 */
+  if (isSnowBanner) {
+    umbrellaIcon = '❄️';
+    umbrellaCls  = 'warn';
+  }
 
   /* ---- 淋湿风险（从"依据"里提出来，升格成 L0 的体感句素材） ----
      体感句 = 雨强档名 + 淋湿后果，两样都取自用户给定的档位表，不自创新词。
@@ -4057,8 +5146,23 @@ function computeDecision(ctx, unc, comfort, prefs) {
   if (avail === 0) {
     parts.push('没有可用的模型数据');
   } else {
-    parts.push(`${rainCount}/${avail} 模型预测有雨`);
-    if (relDiv !== null) parts.push(`雨量相对分歧 ${fmtDiv10(relDiv)}%`);
+    /* 批 A（2026-09-26）：依据句按相态换量名（探针验收抓出来的残留 —— 前面几个出口改了，
+       这里原来还写死"有雨"，于是雪天出现「有降雪，路面可能打滑」+「2/3 模型预测有雨」同屏打架）。
+       `comfort` 是本函数的形参，直接读它挂着的相态，不用下面那个（headline 分支里的）ph。 */
+    const phWhy = (comfort && comfort.phase) ? comfort.phase : null;
+    /* 批 C（2026-09-26 用户点名修）：依据行原来写 `${rainCount}/${avail} 模型预测有雪`
+       —— 那既**不解释结论**（季克西是"ECMWF 报雨 + ICON 报雪"跨模型合成出"雪"，
+       写"1/3 模型预测有雪"读者看不出为什么最终说小雪），又**与来源标注打架**
+       （同一屏还写着"3/3 个模型有值"）。
+       现在改成如实说**谁报了什么 + 最终取哪个 + 覆盖几个模型**。 */
+    const phasePhrase = phaseSourcePhrase(phWhy, avail, ctx);
+    parts.push(phasePhrase);
+    /* "雨量相对分歧" → 分歧的是**降水量**（含雪融水），说"雨量"在雪天同样打架 */
+    if (relDiv !== null) parts.push(`降水量相对分歧 ${fmtDiv10(relDiv)}%`);
+    /* D：单源看不到雪时，把"哪家报的雪"写进依据（与能见度卡"仅 GFS 提供"同一模式） */
+    if (phWhy && phWhy.codeButDry && phWhy.snowfallSource) {
+      parts.push(`降水编码说无降水，但 ${modelName(phWhy.snowfallSource)} 报有雪`);
+    }
   }
 
   return {
@@ -4075,6 +5179,9 @@ function computeDecision(ctx, unc, comfort, prefs) {
        （口径一处、只算一次）。`WIN` 无人使用。
        ⚠ `confidence` **不删**：页面渲染不读它，但测试用它断言把握分级（见上面的说明）。 */
     umbrellaText, umbrellaCls, umbrellaIcon, umbrellaNote, heavyRain,
+    /* 批 C：雪天的静态口径句（渲染层挂到 L1 卡② 的 foot，**不挂在动态数字下面**）。
+       显式判空（审计规则⑧）：`ph` 为 null 时返回空串，渲染层按"没有这句"处理。 */
+    snowScopeNote: (ph === null) ? '' : snowScopeNote(ph),
     total24, maxIntensity, maxIntTime, peakProb, peakProbTime
   };
 }
@@ -4085,7 +5192,8 @@ function computeDecision(ctx, unc, comfort, prefs) {
  * 措辞全部来自既有档位表，不新造词：
  *   · 档名与感受 → RAIN_FEEL_LEVELS（按**有效雨强**取，与 L1 卡②同源自洽）
  *   · 淋湿后果   → WET_RISK_LEVELS
- * 两张表里的"伞"字一律不进这句话（硬约束，见 computeDecision 的注释）。
+ *   · 雪天档位句 → SNOW_SLIP_LEVELS（按 **24h 融水当量**取，批 B 2026-09-26）
+ * 两张雨表与那张雪表里的"伞"字一律不进这句话（硬约束，见 computeDecision 的注释）。
  *
  * ⚠ 契约（用户 2026-09-24 定，有测试锁着）：**三种输入都必须给出文案**，
  *    返回空字符串一律按渲染失败处理。
@@ -4103,6 +5211,69 @@ function synthesizedFeelLine(comfort, wetRisk) {
   }
   const eff = numOrNull(comfort.effRainPeak);
   if (eff === null) return '降水数据不可用';
+
+  /* ---------- 批 A（2026-09-26）：先按相态分派 ----------
+     判据一律读 `comfort.phase`（由 computeWindowPhase 一次算齐、挂在 comfort 上），
+     **不在这里重算** —— 重算就是"同一份数据的第二份真相"。
+     `phase` 为 null（相态判不出）或 'rain'（本来就是雨）时，**原样走下面的降雨逻辑**，
+     所以「三种输入都必须给出文案」这条老契约不受影响。 */
+  const ph = comfort.phase;
+  if (ph && ph.phase === 'hail') {
+    return '有冰雹，别在外面停留';
+  }
+  if (ph && ph.phase === 'frzr') {
+    return '冻雨落地成冰，比下雪更滑';
+  }
+  if (ph && ph.phase === 'snow') {
+    /* 雪天说的是「积、雪」，不是「淋湿」——雨的那套感受句在这里全部换掉。
+       三个降雪量各自分工（HANDOFF 表 1）：
+         · `slip`   —— 档位措辞（`SNOW_SLIP_LEVELS`，1:1 镜像 `SNOW_FEEL_LEVELS`）
+         · `snowCm` —— 会积多厚（`snowfall` 累计，cm）
+         · `depthM` —— 地上现在多厚（`snow_depth`，m，状态量）
+       ⚠ 批 B（2026-09-26 用户点名）：**只说雪，不断言"滑倒"** —— 真正最滑的是化冻再冻的冰面，
+         与降雪量无关（接近 0℃ 的小雪比 −10℃ 的大雪滑得多）。所以本分支不出现"滑"字。 */
+    const snowCm = (ph.snowCm === null || ph.snowCm === undefined) ? null : ph.snowCm;
+    const depthM = (ph.depthM === null || ph.depthM === undefined) ? null : ph.depthM;
+    /* 档位句：判据是 24h 融水当量（`precip24Mm`）。判不出档（雪量太小或数据缺失）时
+       退回"降雪量不大" —— 但**不冒充档名**（那就是拿 0 顶替缺失）。 */
+    const lv = snowFeelLevel(ph.precip24Mm);
+    /* 显式判空（审计规则⑧）：雪量小到无档或 24h 融水当量缺失时
+       → 退回一句不含量级的说法，**不冒充档名**（那是拿 0 顶替缺失）。
+       ⚠ 雪**深度**读数也缺失时（`snowCm === null`）说"积雪读数不足"而不是"降雪量不大"：
+         后者会把"没数据"说成"量不大"，正是本批要防的那种话。 */
+    let parts;
+    if (lv === null) {
+      parts = [
+        (snowCm === null || snowCm === undefined) ? '积雪读数不足' : '降雪量不大'
+      ];
+    } else {
+      parts = [lv.slip];
+    }
+    if (snowCm !== null && snowCm > 0) parts.push(`还会积雪约 ${fmtSnowfall(snowCm)}`);
+    /* 批 C（2026-09-26 用户点名修）：积雪深度是**状态量**，紧跟「还会积雪约 1 厘米」会让读者
+       以为 82 厘米是今天新下的 —— 必须点明它含常年积雪。 */
+    if (depthM !== null && depthM > 0) parts.push(`地上已有 ${fmtSnowDepth(depthM)}（非今日新增 · 含常年积雪）`);
+    /* ⚠ 批 C：这两句**静态口径/说明**下沉到 `foot`（见 `snowScopeNote`）——
+       静态口径挂在动态数字下面正是用户清单第 7 条点名的反模式；
+       而且它与下面的"按气温推断"叠在一起读着像重复（朗伊尔城实测）。
+       判据仍然一处：`phase` 上的 `mixed` / `source` / `codeButDry`。 */
+    /* 代码说雨、气温却在冰点以下 → 这是**降级推断**，必须紧贴结论标明（这句留在句内） */
+    if (ph.conflict) return `代码报的是雨，但气温已在冰点以下，实际很可能在下雪；${parts.join('，')}`;
+    /* D（2026-09-26）：主源 code 说无降水、而雪来自**别的模型** → 必须说清是谁报的，
+       否则读者会以为这是主源在说下雪（"单源最需要标注"）。 */
+    if (ph.codeButDry && ph.snowfallSource) {
+      return `降水编码说无降水，但 ${modelName(ph.snowfallSource)} 报有雪：${parts.join('，')}`;
+    }
+    /* D（2026-09-26 用户要求）：主源的码**整段缺失**、相态是靠气温降级推断出来的
+       → 必须标明"这是推断"，否则读者会把这句当成接口在说下雪。
+       ⚠ 这句承诺从批 A 起就写在 PHASE_TEMP_FALLBACK 的注释里（"输出里必须标明"），
+         但渲染层**一直没有消费点** —— 2026-09-26 的相态夹具抓到"承诺了没接线"，
+         顺带也暴露了 `source` 在传递中恒为 'code' 的真 bug（两者都已修）。 */
+    if (ph.source === 'temp') {
+      return `${parts.join('，')}（降水编码缺失，按气温推断）`;
+    }
+    return parts.join('，');
+  }
 
   /* ⚠ 档位必须**按数值查表**，绝不能用 comfort.effRainPeakIndex 去索引 RAIN_FEEL_LEVELS。
      那个字段是 computeComfort 里 `const idx = fStart + k` 记下的**时间轴绝对下标**
@@ -4212,13 +5383,13 @@ function uncertaintyCards(ctx, u) {
     value = '—'; cls = 'c-muted'; note = '没有可用的模型数据';
   } else if (u.rainCount === 0) {
     value = '一致，都认为不下雨'; cls = 'c-muted';
-    note = `${u.rainCount}/${u.avail} 个模型 48h 雨量 > ${UNC_RAIN_MM}mm`;
+    note = `${u.rainCount}/${u.avail} 个模型 48h 降水量 > ${UNC_RAIN_MM}mm`;
   } else if (u.rainCount === u.avail) {
-    value = '一致，雨会下'; cls = 'c-ok';
-    note = `${u.rainCount}/${u.avail} 个模型 48h 雨量 > ${UNC_RAIN_MM}mm`;
+    value = '一致，降水会下'; cls = 'c-ok';
+    note = `${u.rainCount}/${u.avail} 个模型 48h 降水量 > ${UNC_RAIN_MM}mm`;
   } else {
     value = '⚠️ 分歧：有的说下有的说不下'; cls = 'c-danger';
-    note = `${u.rainCount}/${u.avail} 个模型认为有雨，其余认为没有`;
+    note = `${u.rainCount}/${u.avail} 个模型认为有降水，其余认为没有`;
   }
   /* 卡片 1｜降雨是否一致
      口径提示用 CARD5_SCOPE_NOTE（"本卡只统计 3 个确定性模型，与概率 / 区间的集合口径不同源"）
@@ -4226,7 +5397,7 @@ function uncertaintyCards(ctx, u) {
      两组数字并排会被读成自相矛盾（实测确定性 0.2/0/0mm vs 集合 P43/51 过线）。
      B5 之前这句被错挂到了概率卡上（方向正好相反），现在物归原主。 */
   cards.push({
-    label: '降雨是否一致（48h）', value, cls,
+    label: '降水是否一致（48h）', value, cls,
     /* ④（2026-09-24 用户指出）：avail === 0 时这张卡已经在说"没有可用的模型数据"，
          再挂"本卡只统计 3 个确定性模型…"就是噪音 —— 那个口径提示只在真有数字时才有意义。 */
       note: u.avail === 0 ? note : (note + tail + '　·　' + CARD5_SCOPE_NOTE)
@@ -4242,12 +5413,12 @@ function uncertaintyCards(ctx, u) {
     const wet = (ctx && ctx.ens) ? wetMemberStats(ctx.ens, ctx.eStart) : null;
     const prob = (wet && wet.prob !== null) ? Math.round(wet.prob) : null;
     cards.push({
-      label: '48 小时降雨概率',
+      label: '48 小时降水概率',
       value: prob === null ? '—' : fmtProb5(prob),
       unit: prob === null ? '' : '%',
       note: prob === null
         ? '集合成员数据不可用，无法给出概率'
-        : `${wet.wet}/${wet.usable} 个集合成员 48h 累计雨量 > ${UNC_RAIN_MM}mm　·　` +
+        : `${wet.wet}/${wet.usable} 个集合成员 48h 累计降水量 > ${UNC_RAIN_MM}mm　·　` +
           PROB48_SCOPE_NOTE,
       cls: prob === null ? 'c-muted'
         : (prob >= PROB48_TIERS.CERTAIN_PCT ? 'c-accent2'
@@ -4255,56 +5426,56 @@ function uncertaintyCards(ctx, u) {
     });
   }
 
-  /* 卡片 2｜雨量分歧程度（只在有雨的模型之间比较） */
+  /* 卡片 2｜降水量分歧程度（只在有降水的模型之间比较） */
   const rainNames = u.rainSet.map(m => `${m.name} ${fmtAccum(m.total)}mm`).join(' · ');
   if (u.rainCount === 0) {
-    cards.push({ label: '雨量分歧程度', value: '—', cls: 'c-muted',
-      note: '没有模型预报有效降雨，无需比较' + tail });
+    cards.push({ label: '降水量分歧程度', value: '—', cls: 'c-muted',
+      note: '没有模型预报有效降水，无需比较' + tail });
   } else if (u.rainCount === 1) {
-    cards.push({ label: '雨量分歧程度', value: '样本不足', cls: 'c-muted',
-      note: `只有 ${u.rainSet[0].name} 有雨（${fmtAccum(u.rainSet[0].total)}mm），无法比较` + tail });
+    cards.push({ label: '降水量分歧程度', value: '样本不足', cls: 'c-muted',
+      note: `只有 ${u.rainSet[0].name} 有降水（${fmtAccum(u.rainSet[0].total)}mm），无法比较` + tail });
   } else if (u.relDiv === null) {
-    cards.push({ label: '雨量分歧程度', value: '—', cls: 'c-muted',
-      note: '可用模型的中位雨量为 0，无法计算相对分歧' + tail });
+    cards.push({ label: '降水量分歧程度', value: '—', cls: 'c-muted',
+      note: '可用模型的中位降水量为 0，无法计算相对分歧' + tail });
   } else {
-    cards.push({ label: '雨量分歧程度', value: fmtDiv10(u.relDiv), unit: '%', cls: u.divLevel.cls,
+    cards.push({ label: '降水量分歧程度', value: fmtDiv10(u.relDiv), unit: '%', cls: u.divLevel.cls,
       note: `${rainNames} ｜ ${u.divLevel.text}` + tail });
   }
 
-  /* 卡片 3｜雨量区间（P10 ~ P90） */
+  /* 卡片 3｜降水量区间（P10 ~ P90） */
   if (u.ensOk) {
     cards.push({
-      label: '雨量区间（P10~P90）',
+      label: '降水量区间（P10~P90）',
       value: `${fmtQuant(u.p10)} ~ ${fmtQuant(u.p90)}`, unit: 'mm', cls: 'c-accent2',
       note: `覆盖 80% 集合成员，中位数 ${fmtQuant(u.p50)} mm　·　` + P90_IS_NOT_WORST_NOTE
     });
   } else {
     cards.push({
-      label: '雨量区间（P10~P90）', value: '数据不足', cls: 'c-muted',
+      label: '降水量区间（P10~P90）', value: '数据不足', cls: 'c-muted',
       note: u.ensCount ? `只有 ${u.ensCount} 个集合成员可用`
-        : (u.ensMemberTotal ? '集合成员的雨量数据不可用' : '集合成员数据不可用')
+        : (u.ensMemberTotal ? '集合成员的降水量数据不可用' : '集合成员数据不可用')
     });
   }
 
   /* 卡片 4｜峰值时间分歧 */
-  /* weakNote：有雨、但小时雨强够不上门槛的模型。要如实说清"少算了几个、为什么"，
+  /* weakNote：有降水、但小时降水强度够不上门槛的模型。要如实说清"少算了几个、为什么"，
      否则"用 2 个模型比出来的跨度"会被读成"3 个模型都比过了"。 */
   const peakNames = u.peakModels.map(m => `${m.name} ${m.peakTime}`).join(' · ');
   const weakNote  = u.weakPeaks > 0
-    ? `另有 ${u.weakPeaks} 个模型雨强不足 ${HOUR_RAIN_MM}mm/h` : '';
+    ? `另有 ${u.weakPeaks} 个模型降水强度不足 ${HOUR_RAIN_MM}mm/h` : '';
   if (!u.peakModels.length) {
     cards.push({
       label: '峰值时间分歧',
       value: u.rainCount ? '无明确峰值' : '无有效降水',
       cls: 'c-muted',
       note: u.rainCount
-        ? `${u.rainCount} 个有雨模型的小时雨强都不到 ${HOUR_RAIN_MM}mm/h，是平缓细雨，没有可比较的峰值`
-        : `${u.win}h 内各模型雨量均 ≤ ${UNC_RAIN_MM}mm`
+        ? `${u.rainCount} 个有降水模型的小时降水强度都不到 ${HOUR_RAIN_MM}mm/h，是平缓细雨，没有可比较的峰值`
+        : `${u.win}h 内各模型降水量均 ≤ ${UNC_RAIN_MM}mm`
     });
   } else if (u.spanHours === null) {
     cards.push({ label: '峰值时间分歧', value: '样本不足', cls: 'c-muted',
       note: `${u.peakModels[0].name} ${u.peakModels[0].peakTime}（` +
-        (u.weakPeaks ? `${weakNote}，无法比较` : '只有 1 个模型有雨，无法比较') + '）' });
+        (u.weakPeaks ? `${weakNote}，无法比较` : '只有 1 个模型有降水，无法比较') + '）' });
   } else {
     cards.push({ label: '峰值时间分歧', value: `${u.spanHours} 小时`, cls: u.peakLevel.cls,
       note: `${peakNames} ｜ ${u.peakLevel.text}` + (weakNote ? ` ｜ ${weakNote}` : '') + tail });
@@ -4330,14 +5501,118 @@ function uncertaintyCards(ctx, u) {
  * 约定：**渲染函数一律只读 ctx.model.\***，不许再自己调 compute*。
  * 唯一例外是 `computeScores`：它要跟 prefs 联动重算，见 onPrefChange。
  */
+/**
+ * 【批 A 2026-09-26】窗口相态 + 两个降雪量的窗口读数。
+ *
+ * 与 `unc` / `comfort` / `decision` 同属"一次算齐、只读缓存"的那一份（C1 契约）：
+ * 上层任何 render* 只许读 `ctx.model.phase`，不许自己再算一遍 —— 否则同一份数据
+ * 会在 L0 与 L1 给出两个相态结论，正是"同一份数据的第二份真相"那个复发点。
+ *
+ * 三个量的分工（HANDOFF 表 1，绝不许混）：
+ *   · `precipitation` —— mm，**融水当量、已含雪**；国标分级套它（批 B 才建档位）
+ *   · `snowfall`      —— cm，**雪的深度增量**；只回答"地上会积多厚"（`snowCm`）
+ *   · `snow_depth`    —— m，**地表已有雪深**；只回答"地上现在多厚"（`depthM`），且**不跨模型平均**
+ *
+ * @param {object} ctx - 运行上下文（要 `fStart` / `modelSeries`）
+ * @returns {object} 相态与降雪读数；数据不足时各字段如实为 `null`（不是 0）
+ */
+function computeWindowPhase(ctx) {
+  const { fStart, modelSeries } = ctx;
+  const src = FIELD_POLICY.WEATHER_CODE_SOURCE;   // 单源仍用于 L2「官方天气现象」卡（那条产品决定未改）
+  /* 24h 窗口：与页面其它"未来 24 小时"口径一致 */
+  const WIN = 24;
+  /* 相态**跨模型合成**（用户 2026-09-26 定的两层规则）：逐小时、逐模型判"有没有降水"，
+     再在有降水的证据里按严重度取最高相态。
+     ⚠ 只看主源会把"ECMWF 说雨、ICON 说雪"这种天气判成雨（季克西真机实测的形状），
+       所以这里把整个 modelSeries 交给它，而不是先抠出主源那一条序列。 */
+  const r = chooseWindowPhase({ series: modelSeries, models: MODELS, start: fStart, len: WIN });
+
+  /* 降雪量逐模型取窗口累计（**增量**量，取"最不利"= 最大，语义成立） */
+  const perModelSnowCm = {};
+  for (const m of MODELS) {
+    const ms = modelSeries[m];
+    if (!ms) continue;
+    const snow = sumSnowfallCm(ms.snowfall, fStart, WIN);
+    if (snow !== null) perModelSnowCm[m] = snow;
+  }
+
+  /* 积雪深度（**状态量**）与它的疑似填充常量判定，一律用 `chooseWindowPhase` 算好的那一份
+     （批 C 2026-09-26）：原来这里又逐模型算了一遍"第一个有值的小时"，而那边已经算过 ——
+     同一份数据两处算就是"第二份真相"的温床，而且**冻结常量规则**必须只在一处生效。 */
+  const perModelDepthM = r.perModelDepthM || {};
+  const depthValidM    = r.depthValidM || {};
+  const depthSamples   = r.depthSamples || {};
+  const depthSuspect   = r.depthSuspect || {};
+
+  /* 聚合：
+     · `snowfall`（增量）→ 取最大，理由与"最不利情况"一致；
+     · `snow_depth`（状态量）→ **只从有效家里取**，并**按数值取最大**仅用于"选一家代表"，
+       绝不再让疑似填充值（ECMWF 20.35 / ICON 40.00）参与 —— 用户 2026-09-26 拍板的规则。
+     三家原始值一律带出去（`depthSamples`），渲染层要能如实并列。 */
+  const snowVals = Object.values(perModelSnowCm);
+  const validDepthKeys = Object.keys(depthValidM);
+  const validDepthVals = validDepthKeys.map(k => depthValidM[k]);
+  const depthModel = validDepthKeys.length > 0
+    ? validDepthKeys.find(k => depthValidM[k] === Math.max.apply(null, validDepthVals))
+    : null;
+
+  return {
+    /* 窗口级相态 */
+    phase: r.phase,
+    source: r.source,          // 'code' = 接口直说；'temp' = 按气温降级推断；null = 判不出
+    conflict: r.conflict,      // weather_code 与气温矛盾 → 文案层必须如实说出
+    mixed: r.mixed,            // 窗口内既有雪又有非雪 → 文案层交代"雨转雪/混合"
+    snowHours: r.snowHours,
+    rainHours: r.rainHours,
+    precipHours: r.precipHours,
+    /* 批 C：逐模型相态票数（依据行要用它如实说"谁报了什么"） */
+    votesByModel: r.votesByModel || {},
+    wetModels: r.wetModels || [],
+    dryModels: r.dryModels || [],
+    /* 两个降雪量（各自逐模型，不做跨模型平均） */
+    perModelSnowCm,
+    perModelDepthM,
+    snowCm: snowVals.length > 0 ? Math.max.apply(null, snowVals) : null,
+    snowModel: snowVals.length > 0
+      ? Object.keys(perModelSnowCm).find(k => perModelSnowCm[k] === Math.max.apply(null, snowVals))
+      : null,
+    /* 积雪深度：主值只取**有效家**；全部疑似填充时 `null`（页面显示「—」并列出三家原始值） */
+    depthM: validDepthVals.length > 0 ? Math.max.apply(null, validDepthVals) : null,
+    depthModel,
+    depthSamples,
+    depthSuspect,
+    depthValidM,
+    /* 批 B：降雪档位判据量（24h 融水当量 mm）+ 来源模型 + "有值的最大一家"。
+       全部由 `chooseWindowPhase` 一次算齐（它才拿得到逐模型逐小时的序列），
+       这里只做**透传**，渲染层与决策层只读这一份，不许各自重算。 */
+    precip24Mm: r.precip24Mm,
+    precipSourceModel: r.precipSourceModel,
+    precipModelMaxMm: r.precipModelMaxMm,
+    precipModelMaxModel: r.precipModelMaxModel,
+    /* ---- D（2026-09-26）：单源看不到雪时，如实说出分歧 + 标注来源 ---- */
+    /* 真 = 主源 `weather_code` 说无降水，而这雪是**别的模型**报的（麦克默多那格） */
+    codeButDry: r.codeButDry === true,
+    /* 降雪数据来自哪个模型；主源没有、用别家时要标出来（单源最需要标注，不是最需要信任） */
+    snowfallSource: r.snowModel !== null && r.snowModel !== undefined
+      ? r.snowModel
+      : (snowVals.length > 0 ? src : null)
+  };
+}
+
 function primeModelCache(ctx) {
   const unc     = computeUncertainty(ctx);
   const comfort = computeComfort(ctx);
   const prefs   = loadPrefs();
+  /* 批 A：窗口相态 + 两个降雪读数。挂在 comfort 上而不是新开一个 ctx.model 字段 ——
+     `synthesizedFeelLine(comfort, wetRisk)` 的签名被测试锁着，不能加第三个形参；
+     同时它也属于"体感/相态"这一层，与 effRainPeak 并列最自然。 */
+  comfort.phase = computeWindowPhase(ctx);
   ctx.model = {
     unc, comfort, prefs,
     decision: computeDecision(ctx, unc, comfort, prefs),
-    rp: mainRainPeriod(ctx)
+    rp: mainRainPeriod(ctx),
+    /* 同一份相态也挂在 model 上，供 L1/L2 的出口读（只读缓存，不许重算） */
+    phase: comfort.phase
   };
   return ctx.model;
 }
@@ -4426,24 +5701,10 @@ function renderKpis(ctx) {
   /* L1 卡③ 与 renderDetail 读的是同两个端点，所以直接取 comfort 的字段 */
   const tempMin = comfort.tempMin, tempMax = comfort.tempMax;
 
-  /* 可用时段内的最大风速：模型平均后的峰值 */
-  const winds = models.map(m => modelSeries[m].wind_speed_10m)
-    .filter(Boolean).map(a => a.slice(fStart, fStart + fHours).map(numOrNull));
-  let windValue = '—', windNote = '—';
-  if (winds.length) {
-    const len = Math.min.apply(null, winds.map(a => a.length));
-    let peak = null;                              // 没有有效时段就保持 null，不落回 0
-    for (let i = 0; i < len; i++) {
-      const vals = validNums(winds.map(a => a[i]));   // 该小时各模型的有效风速
-      if (!vals.length) continue;                     // 该小时全缺 → 跳过，不参与峰值
-      const v = vals.reduce((x, y) => x + y, 0) / vals.length;
-      if (peak === null || v > peak) peak = v;
-    }
-    if (peak !== null) {
-      windValue = fmtWind(peak);
-      windNote  = peak >= WIND_PEAK_TIERS.STRONG_KMH ? '风力较强，注意防范' : (peak >= WIND_PEAK_TIERS.MODERATE_KMH ? '风力中等偏大' : '风力温和');
-    }
-  }
+  /* 批 E（2026-09-26）：这一段原来自己现算"可用时段内最大风速"（窗口用 `fHours`，
+     页面上是 68/72h），与旁边那张写死 24h 的阵风卡并排 —— **两个窗口、两个数、没处说明**。
+     现在删掉这段重复计算：L2 的风速卡直接读 `comfort.windAvgPeak` / `comfort.windAvgLv`
+     （同一个 24h 窗口、同一个三模型平均，判据与卡四/评分/副标题**同源**）。 */
 
   /* 未来 24 小时平均云量 */
   const clouds = models.map(m => modelSeries[m].cloud_cover)
@@ -4476,7 +5737,9 @@ function renderKpis(ctx) {
   /* ---------- 第 3 层：其余指标全部进折叠区 ---------- */
   renderDetail(ctx, unc, comfort, {
     ensUsable, p50_24, p10_24, p90_24, p50_all, p10_48, p90_48, p90_all,
-    tempValue, tempNote, tempMin, tempMax, windValue, windNote, cloudOk, cloudAvg
+    tempValue, tempNote, tempMin, tempMax, cloudOk, cloudAvg
+    /* ⚠ 批 E：`windValue` / `windNote` 已退役（风速卡改读 comfort.windAvgPeak / windAvgLv）——
+       留着它们就是"参数表里有用不上的东西"，正是上面那段注释要防的。 */
   });
 }
 
@@ -4505,6 +5768,12 @@ function renderKpis(ctx) {
 function coreCards(ctx, comfort) {
   const { fTime, fStart } = ctx;   // fStart：算"今天/明天/后天"的基准时刻
   const cards = [];
+  /* 批 A（2026-09-26）：窗口相态。与 L0 同源（ctx.model.phase），**不重算** ——
+     L0/L1 必须给同一个相位，否则就是"同一份数据的第二份真相"。 */
+  const ph = (ctx.model && ctx.model.phase) ? ctx.model.phase : null;
+  const isSnow = !!(ph && ph.phase === 'snow');
+  const isFrzr = !!(ph && ph.phase === 'frzr');
+  const isHail = !!(ph && ph.phase === 'hail');
 
   /* =======================================================================
      L1：固定三张卡（2026-09-24 分层重组）
@@ -4533,9 +5802,11 @@ function coreCards(ctx, comfort) {
          L2 仍用精确的 rangeText（「9/25 02时至03时」）—— 两层分工"人话 vs 可核对"，
          同一段输出里不混用两套格式。 */
       value = spokenRange(fTime[fStart], fTime[rp.main.i], plusOneHour(fTime[rp.main.j]));
+      /* 批 A：hint 里的"段雨"按相态换量名（探针验收抓出的第三处残留） */
+      const segWord = isSnow ? '雪' : (isFrzr ? '冻雨' : (isHail ? '冰雹' : '雨'));
       hint  = rp.periods.length > 1
-        ? `24 小时里有 ${rp.periods.length} 段雨，这是最大的一段`
-        : '这一段时间雨最集中';
+        ? `24 小时里有 ${rp.periods.length} 段${segWord}，这是最大的一段`
+        : `这一段时间${segWord}最集中`;
       /* ④（2026-09-25 用户实测报）：卡② 的 hint 也有「最强一小时出现在 02:00」——
          那是**整个 24h 窗口**的峰值，而这里报的是**主降雨时段内部**的峰值，
          两者可能不是同一个小时（注释在第 3359 行早就写明了，但页面上措辞看不出区别）。
@@ -4544,12 +5815,23 @@ function coreCards(ctx, comfort) {
         `${fmt(rp.main.peak, PRECISION.HOUR_MM)} 毫米/小时`);
       cls = 'c-accent2';
     } else {
-      value = '24 小时内基本不下雨';
-      /* 有雨的模型都够不上 HOUR_RAIN_MM 门槛 → 如实说"没有明显的一段"，
-         后面那句 laterFirst 是阶段一原有的"往后看看还有没有零星小雨"，原样保留。 */
-      hint  = rp.laterFirst
-        ? `更晚的 ${spokenRange(fTime[fStart], fTime[rp.laterFirst.i], plusOneHour(fTime[rp.laterFirst.j]))} 可能有零星小雨`
-        : '没有成片降雨的时段';
+      /* 批 A：这一支的原文案是「24 小时内基本不下雨」——雪天必须改口。
+         判据（rp.main 为 null，即没有成片降水）一个字不动，只换被说的那个量名。 */
+      if (isSnow) {
+        value = '24 小时内基本不下雪';
+        hint = '雪不大，暂时积不起来';
+      } else if (isFrzr) {
+        value = '24 小时内基本没有冻雨';
+        hint = '暂时没有结冰风险，仍要留意路面';
+      } else if (isHail) {
+        value = '24 小时内没有冰雹';
+        hint = '暂时不用躲避';
+      } else {
+        value = '24 小时内基本无降水';
+        hint = rp.laterFirst
+          ? `更晚的 ${spokenRange(fTime[fStart], fTime[rp.laterFirst.i], plusOneHour(fTime[rp.laterFirst.j]))} 可能有零星小雨`
+          : '没有成片降水的时段';
+      }
       cls = 'c-muted';
     }
     cards.push({ label: '什么时候下', value, hint, foot, cls });
@@ -4562,28 +5844,96 @@ function coreCards(ctx, comfort) {
     const effOk = comfort.effRainPeak !== null && comfort.effRainPeakIndex !== null;
     const rawOk = comfort.hourPeak !== null && comfort.hourPeakIndex !== null;
     const foot  = [];
+    /* 危险相态（批 D 2026-09-26）：冻雨 / 冰雹 —— 判据量与雪同一列（24h 降水量），
+       但**不查雪表**（那按国标降雪量的融水当量分档，套到冻雨/冰雹上是量纲错配）。
+       D-5 已裁定**不建冻雨/冰雹档位表**：理由不是"查不到依据"，是**根本没有数据源** ——
+       冻雨分级靠积冰厚度、冰雹分级靠冰雹直径，Open-Meteo 都不提供（冰雹最多只有 0/1），
+       建了就是喂不进数、永远走不到的死代码（HANDOFF 11.4）。 */
+    const isHazardPh = isFrzr || isHail;
+    /* 批 B：雪天的档位（未判出/无雪时为 null）。判据与 L0、结论横幅**同一个函数**。
+       ⚠ 批 D：排除危险相态 —— 混合相态正在被 L0 当冻雨/冰雹处理时，
+         `snowFeelLevel` 绝不能把它当成雪去查国标降雪档。
+       ⚠ 写法讲究（审计规则⑧，2026-09-26 批 D 实测踩到：16 个套件齐红）：
+         规则⑧ 的"语句级标记"取的是**本行行首到本行第一个分号**那一段 ——
+         写成跨行三元式（`cond ? snowFeelLevel(x)` 换行 `: null;`）就会把
+         `ph.precip24Mm !== null` 留在上一行、调用落在下一行，规则看不见判空 → 误报。
+         所以用 `snowFeelOk`：**判空与取档在同一行、同一条语句里**，
+         调用点也真的先问了"这个量有没有值"（不是为过检查而写）。 */
+    const snowLv = snowFeelOk(ph) ? snowFeelLevel(ph.precip24Mm) : null;   // snowFeelOk 已接住缺失与危险相态
     /* 三（2026-09-25 用户实测报）：主值走**有效雨强**（含风雨耦合），
        foot 原来只给**原始雨强峰值** —— 两个数并排放着却没有换算关系，
        读者按 RAIN_FEEL_LEVELS 查表会以为算错了：0.4 明明是"毛毛细雨"，
        主值却说"很小的雨"（因为 0.4 × 风力系数 ≈ 0.6，落在 max:1 那一档）。
        同一张卡里的两个数必须能互相印证 —— 所以两者一起露出来，并标清哪个是哪个。
        降级：只有原始 / 只有有效时，各自如实报一个，不硬凑。 */
-    if (rawOk && effOk) {
-      foot.push(`有效雨强峰值 ${fmt(comfort.effRainPeak, PRECISION.HOUR_MM)} 毫米/小时（含风）` +
-        `　·　原始 ${fmt(comfort.hourPeak, PRECISION.HOUR_MM)}（未考虑风）`);
-    } else if (rawOk) {
-      foot.push(`原始雨强峰值 ${fmt(comfort.hourPeak, PRECISION.HOUR_MM)} 毫米/小时（未考虑风）`);
-    } else if (effOk) {
-      foot.push(`有效雨强峰值 ${fmt(comfort.effRainPeak, PRECISION.HOUR_MM)} 毫米/小时（含风）`);
+    /* 批 A：foot 按相态给不同的量 —— 雪天给降雪深与积雪深，
+       **不把雨强塞进雪天的卡里**（那是"报的量和判的量不是同一个量"的反面用法：
+       这里判据仍是有效雨强，但雪天该让读者看见的是"会积多厚"）。
+       批 B（2026-09-26）：foot 末尾加**来源标注**（用户 T1 第二条要求），
+       格式照抄能见度卡的「仅 GFS 提供（1/3 个模型有值）」那一行。 */
+    if (isHazardPh) {
+      /* 批 D（D-1）：冻雨 / 冰雹**不再借降雨档位**。
+         原来这一支落在下面的 else 里，于是真机实测出现「毛毛细雨 / 有效降水强度峰值 0.2 毫米/小时」——
+         两个问题叠在一起：① 量名错了（那是雨）；② `rainFeelLevel` 评的是"雨滴砸得实不实"，
+         对"落地结冰"这件事零信息量。
+         这里**只报数、不在卡面给量级词**（与 D-5 "不建表"一致）：主值是一句如实的话，
+         数字（24h 降水量，判据量本身）进 foot。
+         来源标注照抄能见度卡与降雪那支的格式 —— 判据量来自哪几家必须说。 */
+      const p24 = numOrNull(ph.precip24Mm);
+      foot.push(p24 === null
+        ? '24 小时降水量累计 —（判不出量级，只能按相态判断）'
+        : `24 小时降水量累计 ${fmt(p24, PRECISION.ACCUM_MM)} 毫米（判据量：融水当量，已含雪）`);
+      const srcH = snowSourceNoteOf(ph, ctx);   // 同一句"哪几家有值"的来源标注，不另写一份
+      if (srcH) foot.push(srcH);
+    } else if (isSnow) {
+      /* 批 C 结构（2026-09-26）：**判据量（档位）在主值/hint，静态口径与来源全在 foot** ——
+         静态口径挂在动态数字下面是用户清单第 7 条点名的反模式。 */
+      foot.push(snowStatsPhrase(ph));
+      const srcNote = snowSourceNoteOf(ph, ctx);
+      if (srcNote) foot.push(srcNote);
+      const scope = (ctx.model && ctx.model.decision && ctx.model.decision.snowScopeNote) || '';
+      if (scope) foot.push(scope);
+    } else {
+      if (rawOk && effOk) {
+        foot.push(`有效降水强度峰值 ${fmt(comfort.effRainPeak, PRECISION.HOUR_MM)} 毫米/小时（含风）` +
+          `　·　原始 ${fmt(comfort.hourPeak, PRECISION.HOUR_MM)}（未考虑风）`);
+      } else if (rawOk) {
+        foot.push(`原始降水强度峰值 ${fmt(comfort.hourPeak, PRECISION.HOUR_MM)} 毫米/小时（未考虑风）`);
+      } else if (effOk) {
+        foot.push(`有效降水强度峰值 ${fmt(comfort.effRainPeak, PRECISION.HOUR_MM)} 毫米/小时（含风）`);
+      }
     }
     cards.push({
       label: '下多猛',
-      value: lv ? lv.name : '—',
-      hint: effOk
-        ? lv.feel + `（最强一小时出现在 ${hhmm(fTime[comfort.effRainPeakIndex])}）`
-        : '降水数据不可用，无法判断雨强',
+      /* 雪天：主值与 hint 都换成降雪措辞 —— 判据（effOk）不动，只换被说的那个量。
+         `lv` 在雪天为 null 也不要紧，下面按相态分派。
+         批 B（2026-09-26）：主值改报**降雪档名**（`SNOW_FEEL_LEVELS`，按 24h 融水当量），
+         替换批 A 时的「有积雪 / 雪不大」——那时还没有档位表，只能报个笼统说法。
+         ⚠ 档位判不出（`precip24Mm` 为 null）时主值给「—」，**不拿"snowCm 大"冒充档名**：
+           snowCm 是雪深（cm）、档位判据是融水当量（mm），两者不是同一个量。 */
+      value: isHazardPh
+        /* 批 D（D-1，2026-09-26 用户要的）：冻雨/冰雹的卡面给**相态**，不给降雨档名。
+           （D-5 不建冻雨/冰雹档位表，所以这里没有"档名"可用 —— 如实说这是什么天气。） */
+        ? (isFrzr ? '冻雨' : '有冰雹')
+        : (isSnow
+          ? (snowLv !== null ? snowLv.name : '—')
+          : (lv ? lv.name : '—')),
+      hint: isHazardPh
+        ? (isFrzr
+          ? '过冷水滴，落地就结冰，路面比下雪更滑'
+          : '可能来得急，别在外面停留')
+        : (isSnow
+          ? (snowLv !== null
+            /* 批 C：口径句（"按 24 小时降水累计分级"）**已下沉到 foot** ——
+               hint 只留"雪本身长什么样"（判据表里的 slip 措辞）。 */
+            ? snowLv.slip
+            : '降雪量级数据不足，只能看下面的积雪读数')
+          : (effOk
+            ? lv.feel + `（最强一小时出现在 ${hhmm(fTime[comfort.effRainPeakIndex])}）`
+            : '降水数据不可用，无法判断降水强度')),
       foot,
-      cls: lv ? lv.cls : 'c-muted'
+      cls: isHazardPh ? 'c-danger'
+        : (isSnow ? (snowLv !== null ? snowLv.cls : 'c-muted') : (lv ? lv.cls : 'c-muted'))
     });
   }
 
@@ -4627,7 +5977,7 @@ function coreCards(ctx, comfort) {
     cards.push({
       label: '穿什么出门',
       value: tOk ? `${fmtTemp(comfort.tempMin)}℃ ~ ${fmtTemp(comfort.tempMax)}℃` : '—',
-      hint: tOk ? tempOutfitText(comfort.tempMin, comfort.tempMax) : '气温数据不可用',
+      hint: tOk ? tempOutfitText(comfort.tempMin, comfort.tempMax, ph) : '气温数据不可用',
       foot: feelsFoot,
       cls: (tOk || fOk) ? 'c-accent' : 'c-muted'
     });
@@ -4649,8 +5999,21 @@ function coreCards(ctx, comfort) {
  * 就是同一份信息写两遍，还顶到 25 字、超了这条 hint 自己的 20 字上限。
  * **数值归主值，人话归 hint**。
  * 温差大时补一句"早晚添衣"——那是主值给不出的判断（区间只说明跨度，不说明怎么穿）。
+ *
+ * 批 B（2026-09-26，用户待办第 4 项）：**穿衣提示接上积雪**。
+ *   第三个形参是窗口相态（`ctx.model.phase`），**可选** ——
+ *   不传时行为与本批之前**逐字一致**（stage3 的两组穷举扫描都只传两个参数，
+ *   它们锁的就是"纯温度函数"那一面，不能因为加雪就变）。
+ *   判定"要不要说防滑"用的是 `SNOW_FEEL_LEVELS` 的第一档下界（`>= 0.1mm` = 至少小雪），
+ *   **不新造阈值**（就是那张表本身）；措辞只说鞋，不断言滑倒（用户硬约束）。
+ *   ⚠ 拼接重复由 stage3 的穷举扫描守着 —— 加了这一句之后，
+ *     "同一个两字词出现两次"必须在**三元组**空间里也扫一遍（已补进那个套件）。
+ * @param {number|null} tMin - 24h 最低气温（℃）
+ * @param {number|null} tMax - 24h 最高气温（℃）
+ * @param {object} [phase] - `ctx.model.phase`（可选；雪天才起作用）
+ * @returns {string} 一句人话
  */
-function tempOutfitText(tMin, tMax) {
+function tempOutfitText(tMin, tMax, phase) {
   const lo = numOrNull(tMin), hi = numOrNull(tMax);
   if (lo === null) return '气温数据不可用';
 
@@ -4671,20 +6034,46 @@ function tempOutfitText(tMin, tMax) {
                                 '短袖就行';
 
   if (hi !== null) {
-    if (hi >= OUTFIT_TIERS.SCORCH_C) {
+    if (hi >= OUTFIT_TIERS.SCORCH_C && (base + '，午后酷热防中暑').length <= OUTFIT_SUFFIX_MAX) {
       /* 36℃+ 的提醒优先于温差 —— 那种天说"添衣"是废话 */
       base += '，午后酷热防中暑';
-    } else if (hi >= OUTFIT_TIERS.HOT_HI_C) {
+    } else if (hi >= OUTFIT_TIERS.HOT_HI_C && (base + '，午后防晒补水').length <= OUTFIT_SUFFIX_MAX) {
       /* ⚠ 这里原来写「，注意防晒补水」，与羽绒服档的「羽绒服，注意保暖」撞出「注意…注意…」
          （lo = −12 / hi = 30 这种"清晨零下、午后 30℃"的大陆性天气会命中）。
          这是**穷举扫描**抓出来的第二处（用户只报了「早晚」那一处）——
-         改用「午后防晒补水」，与 SCORCH 档的「午后酷热防中暑」同一措辞风格。 */
+         改用「午后防晒补水」，与 SCORCH 档的「午后酷热防中暑」同一措辞风格。
+         ⚠ 批 B：加长度闸门（与雪天那句同一个常量）—— "极地级防寒，尽量别出门"后面
+           再接一句 8 字的防暑会到 21 字，与 `OUTFIT_HINT_MAX` 这个既有契约打架。 */
       base += '，午后防晒补水';
-    } else if ((hi - lo) >= OUTFIT_TIERS.SWING_C && lo < OUTFIT_TIERS.SWING_LO_C) {
+    } else if ((hi - lo) >= OUTFIT_TIERS.SWING_C && lo < OUTFIT_TIERS.SWING_LO_C &&
+               (base + '，早晚添衣').length <= OUTFIT_SUFFIX_MAX) {
       /* ⚠ 2026-09-25 用户实测报：旧版只判 `温差 ≥ SWING_C`，
          于是 26.2~39.2℃ 也输出"早晚添衣" —— 最低 26.2℃ 是"早晚都热"。
-         **温差大 ≠ 要添衣**，第二个条件（最低温 < SWING_LO_C）不能省。 */
+         **温差大 ≠ 要添衣**，第二个条件（最低温 < SWING_LO_C）不能省。
+         批 B：同样加长度闸门（上面两条已经占满 20 字时不再叠）。 */
       base += '，早晚添衣';
+    }
+  }
+
+  /* 批 B：下雪且有量（= 至少小雪那一档）→ 补一句鞋的建议。
+     ⚠ 两个守卫缺一不可：
+       · `snowFeelLevel` 返回 null 有两种可能（=0 无雪 / 缺失），**都**不该说这句；
+       · 冷端档位已经说了鞋的（"尽量别出门""别露皮肤"）也不再叠 —— 那种天气鞋不是重点。
+     用档位自身的第一档下界做判据，**不写裸阈值**。 */
+  if (phase && phase.phase === 'snow') {
+    /* 显式判空（审计规则⑧）：融水当量缺失时传 `null` 给取档函数，不拿 undefined 去比。 */
+    const snowLv = snowFeelLevel(phase.precip24Mm !== null ? phase.precip24Mm : null);
+    const minSnowMm = SNOW_FEEL_LEVELS[0].max;
+    /* ⚠ 第二个守卫是**长度闸门**：这条 hint 的 20 字上限是既有契约（老断言锁着），
+       而冷端封底句（"极地级防寒，尽量别出门"）与热端后缀都很长 ——
+       −70~30℃ 那种极端组合下，硬凑一句"穿防滑的鞋"会顶到 24 字、并给出互相打架的两条建议。
+       所以：**只在装得下时才补**（装不下就不补，不截断、不硬切 —— 硬切字符串本项目明令禁止）。
+       `OUTFIT_HINT_MAX` 就是那个上限本身，这里不新造一把尺子。 */
+    if (snowLv !== null && numOrNull(phase.precip24Mm) !== null &&
+        phase.precip24Mm >= minSnowMm && base.indexOf('鞋') < 0 &&
+        base.indexOf(OUTFIT_STAY_IN_TEXT) < 0 &&
+        base.length + SNOW_SHOE_SUFFIX.length <= OUTFIT_HINT_MAX) {
+      base += SNOW_SHOE_SUFFIX;
     }
   }
   return base;
@@ -4780,6 +6169,10 @@ function renderDetail(ctx, unc, comfort, b) {
   const body = document.querySelector('#detailFold .detail-body');
   if (!body) return;
 
+  /* 窗口相态（批 C）：只读缓存，**不重算**。命名避开本函数里另一个 `ph`
+     （那个是 `phenomenonOfMaxPrecip` 的结果，见下面"官方天气现象"那张卡）。 */
+  const phaseW = (ctx.model && ctx.model.phase) ? ctx.model.phase : null;
+
   let card = document.getElementById('detailCard');
   if (!card) {
     card = document.createElement('section');
@@ -4825,14 +6218,14 @@ function renderDetail(ctx, unc, comfort, b) {
       note: b.ensUsable ? totalNote(b.p50_all) : '集合成员数据不可用',
       cls: b.ensUsable ? totalClass(b.p50_all) : 'c-muted' },
 
-    { label: '未来 48 小时雨量（90% 成员不超过）',
+    { label: '未来 48 小时降水量（90% 成员不超过）',
       value: (b.ensUsable && b.p90_48 !== null) ? fmtQuant(b.p90_48) : '—', unit: (b.ensUsable && b.p90_48 !== null) ? 'mm' : '',
       /* 副标题必须给**48 小时**的 P10~P90（与标题同一时间尺度）——
          原来是 24 小时的数，属于"页面撒谎"级别的不一致。 */
       note: b.ensUsable ? accumRangeText(b.p10_48, b.p90_48) : '集合成员数据不可用',
       cls: 'c-accent2' },
 
-    { label: '未来 7 天雨量（90% 成员不超过）',
+    { label: '未来 7 天降水量（90% 成员不超过）',
       value: (b.ensUsable && b.p90_all !== null) ? fmtQuant(b.p90_all) : '—', unit: (b.ensUsable && b.p90_all !== null) ? 'mm' : '',
       /* N9（2026-09-24 用户再次指出）：上一轮只是**换了措辞**，"偏多情形 / 不是极限值"
          与**本组组标题**（P90_IS_NOT_WORST_NOTE 原文）仍是同一件事说两遍 —— 等于没删。
@@ -4855,18 +6248,34 @@ function renderDetail(ctx, unc, comfort, b) {
         ? `　·　体感${comfort.feelsLv.name}（${comfort.feelsLv.tip}）` : ''),
       cls: 'c-accent' },
 
-    { label: `未来 ${ctx.fHours}h 最大风速`, value: b.windValue, unit: 'km/h', note: b.windNote, cls: 'c-accent' },
+    /* ---- 风力卡（批 E 2026-09-26 用户需求）----
+       主视觉 = 「N 级 名称（风速区间）」+ 本档的**陆地征象**（GB/T 28591—2012 附录 A 原文）；
+       阵风单独一行、**只报数不配描述**。
+       为什么合成一张卡：原来"最大风速"与"最大阵风"是**两张并排的卡**，窗口还是两个
+       （前者 `fHours`＝68/72h、后者写死 24h），读者看到两个数却读不出它们的关系；
+       现在同一个 24h 窗口、同一个三模型平均，主值配标准那一行，阵风明确标注是阵风。 */
+    { label: '未来 24h 风力（陆上 10 m）',
+      value: comfort.windAvgLv
+        ? `${comfort.windAvgLv.grade} 级 ${comfort.windAvgLv.name}（${comfort.windAvgLv.kmh} km/h）`
+        : '—',
+      unit: '',
+      /* 主值已经是完整的一句（级数 + 名称 + 区间），不再挂 unit 后缀，避免"km/h km/h"。 */
+      note: comfort.windAvgLv ? comfort.windAvgLv.land : '风级数据不可用',
+      cls: comfort.windAvgLv ? comfort.windAvgLv.cls : 'c-muted' },
+
+    { label: '未来 24h 最大阵风',
+      value: fmtWind(comfort.gustPeak),
+      unit: comfort.gustPeak === null ? '' : 'km/h',
+      /* ⚠ 阵风**不配蒲福陆地征象**：标准判的是 10 m 处的平均风（3.1 条），
+         拿阵风去配 5 级的"有叶的小树摇摆"就是量纲错配（阵风 30 的等效平均风只有 3~4 级）。
+         这里只给阵风自己的档名与它该注意的事。 */
+      note: comfort.gustLv ? comfort.gustLv.name + '，' + comfort.gustLv.tip : '阵风数据不可用',
+      cls: comfort.gustLv ? comfort.gustLv.cls : 'c-muted' },
 
     { label: '未来 24h 云量',
       value: b.cloudOk ? String(Math.round(b.cloudAvg)) : '—',
       unit: b.cloudOk ? '%' : '',
       note: b.cloudOk ? skyText(b.cloudAvg) : '云量数据不可用', cls: 'c-accent2' },
-
-    { label: '未来 24h 最大阵风',
-      value: fmtWind(comfort.gustPeak),
-      unit: comfort.gustPeak === null ? '' : 'km/h',
-      note: comfort.gustLv ? comfort.gustLv.name + '，' + comfort.gustLv.tip : '阵风数据不可用',
-      cls: comfort.gustLv ? comfort.gustLv.cls : 'c-muted' },
 
     { label: '未来 24h 最低能见度',
       value: fmtVis(comfort.visMin),
@@ -4894,12 +6303,12 @@ function renderDetail(ctx, unc, comfort, b) {
          写「无降水现象」，绝不写"晴"（用户明确要求）。代码本身仍然如实带出来。 */
       value = '未来 24h 无降水现象';
       unit  = `（WMO code ${ph.code}）`;
-      note  = `最湿的一小时 ${hhmm(ph.time)}，该小时雨量 ` +
+      note  = `最湿的一小时 ${hhmm(ph.time)}，该小时降水量 ` +
               `${fmt(ph.amount, PRECISION.HOUR_MM)}mm`;
     } else {
       value = ph.info.text;
       unit  = `（WMO code ${ph.code}）`;
-      note  = `出现在 ${hhmm(ph.time)}，该小时雨量 ${fmt(ph.amount, PRECISION.HOUR_MM)}mm`;
+      note  = `出现在 ${hhmm(ph.time)}，该小时降水量 ${fmt(ph.amount, PRECISION.HOUR_MM)}mm`;
       cls   = ph.info.cls;
     }
 
@@ -4922,14 +6331,40 @@ function renderDetail(ctx, unc, comfort, b) {
     });
   }
 
+  /* 积雪深度（批 C 2026-09-26 新增）：用户点名要的新维度 ——
+     与"降雪强度"是两个量，**只报数值、不做分级**（复查确认：没有可核的
+     "积雪深度 → 能否行走"标准；最接近的只有灾害分级，来源是文档站转载）。
+     ⚠ 静态口径与三家分歧全走 foot（口径不许挂在动态数字下面）。 */
+  {
+    const sd = snowDepthText(phaseW);
+    const hasAny = (phaseW && phaseW.depthSamples && Object.keys(phaseW.depthSamples).length > 0) ||
+                   (phaseW && phaseW.depthM !== null && phaseW.depthM !== undefined);
+    if (hasAny) {
+      const foot = [];
+      const dNote = snowDepthNoteOf(phaseW);
+      if (dNote) foot.push(dNote);
+      foot.push('只报数值，不做分级（没有可核的"多厚就走不了路"标准）');
+      envCards.push({
+        label: '积雪深度（24 小时）',
+        value: sd.value,
+        unit: sd.unit,
+        note: sd.model
+          ? `地上已有的雪（含常年积雪，非今日新增）　·　来自 ${modelName(sd.model)}`
+          : '地上已有的雪；可用的读数都被判为填充值',
+        foot,
+        cls: sd.model ? 'c-warn' : 'c-muted'
+      });
+    }
+  }
+
   /* 最长连续强降雨：统计小时雨强 ≥ HEAVY_HOUR_MM 的连续段（用户指定口径） */
   {
     const hr = longestHeavyRun(ctx);
     let value, note, foot = [], cls;
     if (!hr.main) {
-      value = '未来 24h 无强降雨';
+      value = '未来 24h 无强降水';
       cls   = 'c-muted';
-      note  = `未来 ${hr.WIN} 小时的小时雨强都没达到 ${HEAVY_HOUR_MM} mm/h`;
+      note  = `未来 ${hr.WIN} 小时的小时降水强度都没达到 ${HEAVY_HOUR_MM} mm/h`;
     } else {
       const seg  = `${hhmm(hr.fTime[hr.main.i])} ~ ${hhmm(plusOneHour(hr.fTime[hr.main.j]))}`;
       const live = hr.ongoing ? '（正在持续）' : '';
@@ -4937,14 +6372,14 @@ function renderDetail(ctx, unc, comfort, b) {
       if (hr.runs.length === 1) {
         /* 只有一段：措辞里不出现"连续"两字 —— 只有 1 小时时"连续 1 小时"是废话 */
         value = hr.main.hours === 1 ? '1 小时' : `持续 ${hr.main.hours} 小时`;
-        note  = `${seg} 连续降雨${live}`;
+        note  = `${seg} 连续降水${live}`;
       } else {
         value = `最长连续 ${hr.main.hours} 小时`;
         note  = `${seg} ｜ 共 ${hr.runs.length} 段，累计 ${hr.totalHours} 小时${live}`;
         foot  = [`另有 ${hr.others.length} 段 ${heavyOthersText(hr.others, hr.fTime)}`];
       }
     }
-    envCards.push({ label: '最长连续强降雨（24 小时）', value, note, foot, cls });
+    envCards.push({ label: '最长连续强降水（24 小时）', value, note, foot, cls });
   }
 
   /* ------- 组 4：这些数字是怎么来的？（口径说明的集中处） -------
@@ -5001,7 +6436,7 @@ function renderDetail(ctx, unc, comfort, b) {
      与下面两张本来就是同一件事，合并后用 availNote 收尾。
      这里同时接收 L0 依据行压掉的三个分句（峰值时间跨度 / 预报覆盖小时数 /
      可用模型数）—— 保证"压依据"不是"丢信息"。 */
-  const uncNote = `未来 ${unc.win} 小时 · 有雨阈值 ${UNC_RAIN_MM}mm` +
+  const uncNote = `未来 ${unc.win} 小时 · 有降水阈值 ${UNC_RAIN_MM}mm` +
     (unc.short ? `（预报仅覆盖 ${unc.win} 小时）` : '') +
     (unc.avail < unc.totalWant ? ` ｜ ${unc.avail}/${unc.totalWant} 个模型可用` : '');
 
@@ -5370,16 +6805,27 @@ function dominantDim(scores, comfort, prefs) {
 
   if (sRain !== null && numOrNull(c.effRainPeak) !== null) {
     cand.push({
-      key: 'RAIN', label: '雨', score: sRain,
-      rawText: '有效雨强 ' + fmt(c.effRainPeak, PRECISION.HOUR_MM) + ' mm/h',
+      key: 'RAIN', label: '降水', score: sRain,
+      rawText: '有效降水强度 ' + fmt(c.effRainPeak, PRECISION.HOUR_MM) + ' mm/h',
       raw: c.effRainPeak, unit: 'mm/h'
     });
   }
-  if (sWind !== null && numOrNull(c.gustPeak) !== null) {
+  /* 批 E：报的**必须是判分那个量** —— 分项分来自平均风（`windScore(c.windAvgPeak)`），
+     所以这里也报平均风 + 蒲福风级；**不再报阵风**（报阵风、判平均风正是本项目
+     "报的量和判的量不是同一个量"那条老坑，2026-09-25 撞过一次）。 */
+  const windAvg = numOrNull(c.windAvgPeak);
+  const wLv = windAvg === null ? null : beaufortLevel(windAvg);
+  if (wLv !== null && windAvg !== null) {
     cand.push({
       key: 'WIND', label: '风', score: sWind,
-      rawText: '阵风 ' + fmtWind(c.gustPeak) + ' km/h',
-      raw: c.gustPeak, unit: 'km/h'
+      rawText: `${wLv.grade} 级 ${wLv.name}（平均风 ${fmtWind(c.windAvgPeak)} km/h）`,
+      raw: c.windAvgPeak, unit: 'km/h'
+    });
+  } else if (sWind !== null && windAvg !== null) {
+    cand.push({
+      key: 'WIND', label: '风', score: sWind,
+      rawText: '平均风 ' + fmtWind(windAvg) + ' km/h',
+      raw: windAvg, unit: 'km/h'
     });
   }
   if (sTemp !== null) {
@@ -5418,8 +6864,13 @@ function dominantDim(scores, comfort, prefs) {
        与明细卡（L2）逐字一致，永不再出现"两处对同一个数说相反的话"。 */
     let reason = '';
     if (x.key === 'WIND') {
-      const lv = gustLevel(c.gustPeak);
-      reason = lv ? lv.tip : '';
+      /* 批 E：措辞改走**蒲福风级表**的陆地征象（与卡④、与判分同一个量、同一张表）。
+         原来读 `GUST_LEVELS.tip` —— 那个表判的是阵风，而分数判的是平均风（两把尺）。
+         `land` 是 GB/T 28591—2012 附录 A 的原文，**页面上不再有任何手写的风影响断言**
+         （旧表里那句"对出行没有影响"已删：全称否定、且被判分反证）。
+         ⚠ `wLv` 是本函数开头一次求出的那一份（同一个 `c.windAvgPeak`），别在这里再取一次 ——
+           同名重复声明会直接 SyntaxError，整个脚本都跑不起来。 */
+      reason = wLv ? wLv.land : '';
       /* 勾了「我会骑车」→ **追加**骑车视角（附加后缀，不替代档位表的 tip）——
          用户验收要求：勾上后副标题要跟着变。 */
       if (p.bike && SCORE_DIM_REASON.WIND.bike) {
@@ -5510,7 +6961,7 @@ function renderScoreSection(comfort, scores, prefs) {
   const rows = [
     /* 四条命名保持同一构词（2026-09-24 用户指出）：要素 + 不利状态。
        原来第 4 条是裸名词「能见度」，与「降雨不适 / 风力影响 / 温度不适」不齐。 */
-    scoreRowHtml('降雨不适',   scores.rain),
+    scoreRowHtml('降水不适',   scores.rain),
     scoreRowHtml('风力影响',   scores.wind),
     scoreRowHtml('温度不适',   scores.temp),
     scoreRowHtml('能见度不佳', scores.vis)
@@ -5562,7 +7013,7 @@ function renderScoreSection(comfort, scores, prefs) {
     : '';
 
   const boostNotes = [];
-  if (scores.hasRain) boostNotes.push('有雨时风力权重 ×1.5');
+  if (scores.hasRain) boostNotes.push('有降水时风力权重 ×1.5');
   if (p.bike)        boostNotes.push('会骑车：风力权重 ×1.5');
   if (p.cold)        boostNotes.push('怕冷：温度权重 ×1.5');
   const missingNote = scores.missing.length
@@ -5671,9 +7122,9 @@ function totalNote(total) {
   if (numOrNull(total) === null) return '集合成员数据不可用';
   if (total < RAIN_ACCUM_TIERS.DRY_MM)       return '基本无有效降水';
   if (total < RAIN_ACCUM_TIERS.LIGHT_MM)     return '降水偏弱，零星小雨为主';
-  if (total < RAIN_ACCUM_TIERS.MODERATE_MM)  return '有中等强度降雨过程';
-  if (total < RAIN_ACCUM_TIERS.HEAVY_MM)     return '累计雨量偏大，注意出行';
-  return '累计雨量很大，需重点防范';
+  if (total < RAIN_ACCUM_TIERS.MODERATE_MM)  return '有中等强度降水过程';
+  if (total < RAIN_ACCUM_TIERS.HEAVY_MM)     return '累计降水量偏大，注意出行';
+  return '累计降水量很大，需重点防范';
 }
 function totalClass(total) {
   /* N1①：null 给中性色，不给"没事"的绿色 */
@@ -5810,7 +7261,7 @@ function renderOverviewChart(ctx) {
   const avgProb   = averageAcrossModels(models, modelSeries, 'precipitation_probability');
 
   // 标题按实际可用时长动态生成，避免"写了 72 小时、实际只画 57 小时"
-  if (overviewTitle) overviewTitle.textContent = '逐小时降雨总览';
+  if (overviewTitle) overviewTitle.textContent = '逐小时降水总览';
   if (overviewSub)   overviewSub.textContent   =
     `柱=降水量(mm)　线=降水概率(%)　未来 ${n} 小时` +
     (want > fHours ? `（预报数据仅 ${fHours} 小时）` : '');
@@ -5881,7 +7332,7 @@ function renderOverviewChart(ctx) {
           /* N1：缺数据不能算进累计，也不能被说成"基本无雨" */
           const p6 = sumSeg(last6);
           return [
-            v === null ? '本小时无数据' : (v >= HOUR_RAIN_MM ? '本小时有降雨' : '本小时基本无雨'),
+            v === null ? '本小时无数据' : (v >= HOUR_RAIN_MM ? '本小时有降水' : '本小时基本无降水'),
             `近 6 小时（含本时）累计：${p6 === null ? '—' : fmt(p6, 2)} mm`
           ];
         }
@@ -6058,7 +7509,7 @@ function renderEnsembleChart(ctx) {
   resetChart(charts.ensemble, ensembleCard);
 
   const options = baseOptions({
-    yTitle: '降雨量 (mm)',
+    yTitle: '降水量 (mm)',
     xTicks: 8,
     animate: 0,   // 成员太多，关掉动画避免卡顿
     tooltipTitle: items => fullTimeLabel(ens.time[eStart + items[0].dataIndex]),
@@ -6311,15 +7762,15 @@ function renderConclusion(ctx) {
   if (main) {
     periodText = rangeText(fTime[main.i], plusOneHour(fTime[main.j]));
     periodSub  = periods.length > 1
-      ? `24 小时内有 ${periods.length} 段间歇降雨，这是雨量最大的一段（约 ${fmtAccum(main.total)} 毫米）`
-      : `连续降雨累计约 ${fmtAccum(main.total)} 毫米`;
+      ? `24 小时内有 ${periods.length} 段间歇降水，这是降水量最大的一段（约 ${fmtAccum(main.total)} 毫米）`
+      : `连续降水累计约 ${fmtAccum(main.total)} 毫米`;
   } else {
-    periodText = '无有效降雨时段';
-    // 24 小时内没有，就往后看看还有没有零星降雨，避免只回一句"没有"太单薄
+    periodText = '无有效降水时段';
+    // 24 小时内没有，就往后看看还有没有零星降水，避免只回一句"没有"太单薄
     const later = rp.laterFirst;
     periodSub = later
       ? `更晚的 ${rangeText(fTime[later.i], plusOneHour(fTime[later.j]))} 可能有零星小雨`
-      : `24 小时内 ${valid24.length} 个模型都没预报出成片降雨`;
+      : `24 小时内 ${valid24.length} 个模型都没预报出成片降水`;
   }
 
   /* ---------- 带伞建议（动作与把握都来自 computeDecision，与第1层建议卡同源） ---------- */
@@ -6335,18 +7786,98 @@ function renderConclusion(ctx) {
      ⚠ **null 必须单独一个分支**（2026-09-24 N1）：`null < 0.1` 是 `true`，
      不拦的话"降水数据整段缺失"会被写成"基本没有有效降雨" ——
      而同一屏的 L0 正显示"模型数据不可用，无法给出建议"，自相矛盾。 */
+  /* 批 A（2026-09-26）：结论句按**窗口相态**换量名。
+     判据（total24 的档位）一个字不动 —— 相态只决定"这件事叫什么"，
+     不是"算不算"：雨说"降雨"、雪说"降雪"、冻雨说"冻雨"。
+     相态判不出（null）→ 一律退回原文案的"降雨"，与改动前逐字一致。 */
+  /* ⚠ 本函数签名只有 `(ctx)`，**没有 comfort 形参**（HANDOFF 第 6 节记过这个坑：
+     直接写 `comfort.xxx` 会 ReferenceError，被 runQuery 的 catch 吃成"整体失败"）。
+     相态从缓存读：primeModelCache 已把同一份挂在 ctx.model.phase 上。 */
+  const wph = (ctx.model && ctx.model.phase) ? ctx.model.phase : null;
+  const isSnowVerdict = !!(wph && wph.phase === 'snow');
+  const isFrzrVerdict = !!(wph && wph.phase === 'frzr');
+  const isHailVerdict = !!(wph && wph.phase === 'hail');
+  /* 批 C：雪天的档位与判据量（**与卡②/L0 同一个函数、同一个量**）——
+     数值直接报 `precip24Mm`（判据量本身，融水当量 mm），而不是多模型平均的 `total24`：
+     用户点名的硬约束是"卡上如果只显示一个数，必须是判据那个数"。 */
+  const snowLv24 = snowFeelOk(wph) ? snowFeelLevel(wph.precip24Mm) : null;   // snowFeelOk 已接住缺失与危险相态
+  const snowTxt24 = (wph && wph.precip24Mm !== null && wph.precip24Mm !== undefined)
+    ? (wph.precip24Mm >= 1 ? String(Math.round(wph.precip24Mm)) : '<1')
+    : '—';
+  /* 句法**一处收口**（批 D / D-4 2026-09-26 用户报）：
+     结论句原来一律写成 `<b>尾巴</b>`，然后**在标签之外**追加
+     `，主要集中在 …` 与 `。` —— 于是 `<b>` 与句读被切开，真机渲染成
+     「**量不大但路面会结冰** ，主要集中在…」（`</b>` 前多一个空格、逗号跑出强调段）。
+     这里把"主句（是什么）+ 第二句（集中在什么时候）"定成一个函数：
+       有主降水时段 → `未来 24 小时该地点<b>{尾巴}</b>。主要集中在 {时段}。`
+       没有主降水时段 → `未来 24 小时该地点<b>{尾巴}</b>。`
+     ⚠ 时间短语改成**独立的一句**，而不是塞进同一句（这是 D-4 的正解，不是绕路）：
+       塞进同一句就必须在 `</b>` 之后接一个逗号（「<b>…</b>，主要集中在…」），
+       那个逗号**没有配对的另一半分句**——前半句已经被 `<b>` 的句号式的尾巴收尾了。
+       拆成两句后句读天然配对，强调段也不会再被切成「**…会结冰** ，主要集中在…」。
+     ⚠ 上句仍以「未来 24 小时该地点」开头 —— 测试与探针都是用这个固定开头
+       「抠出结论句再断言」的（扫整个 body 会假绿），格式不能动那个前缀。 */
+  const verdictOf = tail => main
+    ? `未来 24 小时该地点<b>${tail}</b>。主要集中在 ${rangeText(fTime[main.i], plusOneHour(fTime[main.j]))}。`
+    : `未来 24 小时该地点<b>${tail}</b>。`;
   let verdict;
-  if (total24 === null)                          verdict = `未来 24 小时该地点的降水数据<b>不可用</b>，无法给出结论`;
-  else if (total24 < RAIN24_VERDICT.DRY_MM)       verdict = `未来 24 小时该地点<b>基本没有有效降雨</b>`;
-  else if (total24 < RAIN24_VERDICT.LIGHT_MM)    verdict = `未来 24 小时该地点<b>降雨很弱，不足 1 毫米</b>`;
-  else if (total24 < RAIN24_VERDICT.MODERATE_MM) verdict = `未来 24 小时该地点<b>预计降雨约 ${fmtAccum(total24)} 毫米</b>`;
-  else if (total24 < RAIN24_VERDICT.HEAVY_MM)    verdict = `未来 24 小时该地点<b>降雨明显，约 ${fmtAccum(total24)} 毫米</b>`;
-  else                                           verdict = `未来 24 小时该地点<b>雨量较大，约 ${fmtAccum(total24)} 毫米</b>`;
+  if (total24 === null) {
+    /* 批 A：连降水总量都拿不到时，如果相态明确，仍然如实说出"会下雪/冻雨" */
+    if (isSnowVerdict && wph.snowCm !== null && wph.snowCm > 0) {
+      verdict = `未来 24 小时该地点的降水数据<b>不可用</b>，但已是降雪天气（预计积雪约 ${fmtSnowfall(wph.snowCm)}）。`;
+    } else if (isFrzrVerdict) {
+      verdict = `未来 24 小时该地点的降水数据<b>不可用</b>，但已是冻雨天气。`;
+    } else if (isHailVerdict) {
+      verdict = `未来 24 小时该地点的降水数据<b>不可用</b>，但有冰雹。`;
+    } else {
+      verdict = `未来 24 小时该地点的降水数据<b>不可用</b>，无法给出结论。`;
+    }
+  } else if (isSnowVerdict) {
+    /* 批 C（2026-09-26 用户点名修）：雪天**整支走档名**，不再借用 `RAIN24_VERDICT` 那四档雨措辞。
+       根因就是"旧的雨措辞和新的雪档位并存"：季克西 total24=0.6mm → 雨档说「降雪很弱，不足 1 毫米」，
+       而同一页卡② 按国标说「小雪」—— 同一件事两个说法。
+       现在：档位读 `SNOW_FEEL_LEVELS`（**同一个函数** `snowFeelLevel`，与卡②/L0 同源），
+       数值按**同一个判据量**（`precip24Mm` 的 24h 融水当量）报，并把档名放进句子。 */
+    if (snowLv24 !== null) {
+      /* 口径标注（"融水当量"）**必须落在句号之前**：测试与探针都是
+         「从固定开头抠到第一个句号」再断言的，落到句号之后就等于没标（批 D 实测：2 项红）。 */
+      verdict = verdictOf(`${snowLv24.name}，降雪量约 ${snowTxt24} 毫米（融水当量）`);
+    } else if (wph.precip24Mm === null || wph.precip24Mm === undefined) {
+      verdict = `未来 24 小时该地点降雪，<b>但降雪量数据不可用</b>。`;
+    } else {
+      /* `precip24Mm <= 0`（真值 0）：**没下雪** —— 与"下了 0.05mm"分开，不当成档位。 */
+      verdict = verdictOf('没有有效降雪');
+    }
+  } else if (total24 < RAIN24_VERDICT.DRY_MM) {
+    /* ⚠ 这一档是"极其微量"：总量确实小到不足 0.1mm，所以照实说"没有有效降水"。
+       （雪天走上面的相态支，不经过这里 —— 批 C 2026-09-26） */
+    verdict = verdictOf('基本没有有效降水');
+  } else if (total24 < RAIN24_VERDICT.LIGHT_MM) {
+    if (isFrzrVerdict) verdict = verdictOf('冻雨，量不大但路面会结冰');
+    else if (isHailVerdict) verdict = verdictOf('有冰雹，量不大但要注意躲避');
+    else verdict = verdictOf('降水量很小，不足 1 毫米');
+  } else if (total24 < RAIN24_VERDICT.MODERATE_MM) {
+    if (isFrzrVerdict) verdict = verdictOf(`预计冻雨约 ${fmtAccum(total24)} 毫米`);
+    else if (isHailVerdict) verdict = verdictOf(`预计冰雹约 ${fmtAccum(total24)} 毫米`);
+    else verdict = verdictOf(`预计降水约 ${fmtAccum(total24)} 毫米`);
+  } else if (total24 < RAIN24_VERDICT.HEAVY_MM) {
+    if (isFrzrVerdict) verdict = verdictOf(`冻雨明显，约 ${fmtAccum(total24)} 毫米`);
+    else if (isHailVerdict) verdict = verdictOf(`冰雹明显，约 ${fmtAccum(total24)} 毫米`);
+    else verdict = verdictOf(`降水明显，约 ${fmtAccum(total24)} 毫米`);
+  } else {
+    if (isFrzrVerdict) verdict = verdictOf(`冻雨量较大，约 ${fmtAccum(total24)} 毫米`);
+    else if (isHailVerdict) verdict = verdictOf(`冰雹量大，约 ${fmtAccum(total24)} 毫米`);
+    else verdict = verdictOf(`降水量较大，约 ${fmtAccum(total24)} 毫米`);
+  }
 
-  if (main) verdict += `，主要集中在 ${rangeText(fTime[main.i], plusOneHour(fTime[main.j]))}`;
-  verdict += '。';
+  /* ⚠ "主要集中在…"与句号的位置**已收口到 verdictOf()**（批 D / D-4）——
+     原来在这里追加，会把 `<b>` 与逗号切开（真机渲染成「**量不大但路面会结冰** ，主要集中在…」）。
+     这里不再有任何拼接。 */
   if (maxIntTime && maxIntensity >= STRONG_HOUR_SHOW_MM) {
-    verdict += ` 最强的一小时出现在 ${hourText(maxIntTime)}前后，雨强约 ${fmt(maxIntensity, PRECISION.HOUR_MM)} 毫米/小时。`;
+    /* 批 A：只把"雨强"换成相态对应的量名；数值与判据（STRONG_HOUR_SHOW_MM）一字不动。
+       这条也让"雨的页面说雨、雪的页面说雪"落到这一句上，而不是只改大标题。 */
+    const strengthWord = isSnowVerdict ? '降雪强度' : (isFrzrVerdict ? '冻雨强度' : (isHailVerdict ? '冰雹强度' : '降水强度'));
+    verdict += ` 最强的一小时出现在 ${hourText(maxIntTime)}前后，${strengthWord}约 ${fmt(maxIntensity, PRECISION.HOUR_MM)} 毫米/小时。`;
   }
   verdictBox.innerHTML = verdict;
 
@@ -6402,27 +7933,27 @@ function renderConclusion(ctx) {
          （mx > 0、ratio 会算成一个看着正常的数字）。 */
     agreeBox.innerHTML =
       '<div class="alert info"><span>·</span><span>' +
-      `${valid24.length} 个模型都没有预报出有效降雨（都低于 ${DIVERGE.MIN_MM} 毫米），没有可比较的雨量。` +
+      `${valid24.length} 个模型都没有预报出有效降水（都低于 ${DIVERGE.MIN_MM} 毫米），没有可比较的降水量。` +
       '</span></div>';
   } else if (ratio > DIVERGE.STRONG_RATIO) {
     /* mx 下限已由上一支统一承担，这里不再重复写 `&& mx >= DIVERGE.MIN_MM` —— 同一条件不写两遍 */
     agreeBox.innerHTML =
       '<div class="alert warn"><span>⚠️</span><span>' +
-      '<b>模式分歧较大，这场雨的把握不高。</b><br>' +
-      `${valid24.length} 个模型给出的 24 小时雨量最多相差 ${ratioText}（${detail} 毫米），` +
+      '<b>模式分歧较大，这场降水的把握不高。</b><br>' +
+      `${valid24.length} 个模型给出的 24 小时降水量最多相差 ${ratioText}（${detail} 毫米），` +
       '建议临近时再看一次最新预报。' +
       '</span></div>';
   } else if (ratio > DIVERGE.MILD_RATIO) {
     // 没到 3 倍不至于否定结论，但 3 倍左右时说"比较接近"也不诚实，单独给一档
     agreeBox.innerHTML =
       '<div class="alert ok"><span>·</span><span>' +
-      `${valid24.length} 个模型的 24 小时雨量有一定差距（${detail} 毫米，相差 ${ratioText}），` +
-      '但没到 3 倍的分歧阈值，雨量级的判断仍可参考。' +
+      `${valid24.length} 个模型的 24 小时降水量有一定差距（${detail} 毫米，相差 ${ratioText}），` +
+      '但没到 3 倍的分歧阈值，降水量级的判断仍可参考。' +
       '</span></div>';
   } else {
     agreeBox.innerHTML =
       '<div class="alert ok"><span>✓</span><span>' +
-      `${valid24.length} 个模型的 24 小时雨量比较接近（${detail} 毫米），这场雨的把握较高。` +
+      `${valid24.length} 个模型的 24 小时降水量比较接近（${detail} 毫米），这场降水的把握较高。` +
       '</span></div>';
   }
 
@@ -6458,9 +7989,9 @@ function renderConclusion(ctx) {
      原来只靠 `null >= 25 === false` 这个巧合不触发 —— 巧合不是契约。
      两处都补显式判空（与 heavyRuns 的写法对齐）。 */
   if (p90_48 !== null && p90_48 >= P90_TIERS.HEAVY_MM) {
-    advice.push({ text: `偏多情形下未来 48 小时雨量可达 ${fmtQuant(p90_48)} 毫米，需留意城市内涝与低洼路段积水。`, cls: 'danger' });
+    advice.push({ text: `偏多情形下未来 48 小时降水量可达 ${fmtQuant(p90_48)} 毫米，需留意城市内涝与低洼路段积水。`, cls: 'danger' });
   } else if (p90_48 !== null && p90_48 >= P90_TIERS.MODERATE_MM) {
-    advice.push({ text: `偏多情形下未来 48 小时雨量约 ${fmtQuant(p90_48)} 毫米，出行请预留更多时间。`, cls: 'warn' });
+    advice.push({ text: `偏多情形下未来 48 小时降水量约 ${fmtQuant(p90_48)} 毫米，出行请预留更多时间。`, cls: 'warn' });
   }
 
   // 2) 雨雪判断：温度低 + 有降水 → 可能雨夹雪或雪
